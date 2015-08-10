@@ -1,0 +1,126 @@
+SMALL PAGES
+
+pagetabs init
+PAGE_OFFSET: ffff880000000000
+PGDIR_SHIFT: 39 -- PGDIR_MASK: ffffff8000000000
+PUD_SHIFT: 30 -- PUD_MASK: ffffffffc0000000
+PMD_SHIFT: 21 -- PMD_MASK: ffffffffffe00000
+PAGE_SHIFT: 12 -- PAGE_MASK: fffffffffffff000
+
+========================
+'Current process': PID = 28862, command = 'insmod'
+Process PGD = ffff88013b3d3000
+Kernel PGD (init_level4_pgt) = ffffffff81a85000
+addr = ffff88003780f000
+|  PGD   |   PUD   |   PMD   |   PTE   |   OFFSET   |
++--------+---------+---------+---------+------------+
+|  272   |   000   |   444   |   015   |    0000    | IDX
+========================
+
+Walking PROCESS PGD
+PAGE INFO (1)
+VIRTUAL ADDRESS: ffff88003780f000
+Direct mapping: expected physical address 3780f000
+pgd offset = ffff88013b3d3880
+pud offset = ffff880001a86000 (ffff88013b3d3880 + 8 * 0)
+pmd offset = ffff880001a8ade0 (ffff880001a86000 + 8 * 1bc)
+pte offset = ffff88013945c078 (ffff880001a8ade0 + 8 * f)
+(l4) page num = ffff88003780f000; offset = 0
+PAGE DATA:
+present: 1
+page_flags: 0x163 -- individual flags follow:
+global: 1
+dirty: 1
+file: 1
+accessed: 1
+writeable: 1
+exec: 1
+huge: 0
+(l4) page frame address = 3780f000; offset = 0
+PHYSICAL ADDRESS: 3780f000
+
+
+KERNEL IDENTITY MAPPED (on WRITE)
+VIRTUAL ADDRESS: ffff88003780f000
+Direct mapping: expected physical address 3780f000
+pgd offset = ffff88013b3d3880
+pud offset = ffff880001a86000 (ffff88013b3d3880 + 8 * 0)
+pmd offset = ffff880001a8ade0 (ffff880001a86000 + 8 * 1bc)
+pte offset = ffff88013945c078 (ffff880001a8ade0 + 8 * f)
+(l4) page num = ffff88003780f000; offset = 0
+PAGE DATA:
+present: 1
+page_flags: 0x163 -- individual flags follow:
+global: 1
+dirty: 1
+file: 1
+accessed: 1
+writeable: 1
+exec: 1
+huge: 0
+(l4) page frame address = 3780f000; offset = 0
+PHYSICAL ADDRESS: 3780f000
+
+=============================================
+
+LARGE PAGES (loaded the module in the same session!)
+
+pagetabs init
+PAGE_OFFSET: ffff880000000000
+PGDIR_SHIFT: 39 -- PGDIR_MASK: ffffff8000000000
+PUD_SHIFT: 30 -- PUD_MASK: ffffffffc0000000
+PMD_SHIFT: 21 -- PMD_MASK: ffffffffffe00000
+PAGE_SHIFT: 12 -- PAGE_MASK: fffffffffffff000
+
+========================
+'Current process': PID = 26761, command = 'insmod'
+Process PGD = ffff880037b85000
+Kernel PGD (init_level4_pgt) = ffffffff81a85000
+addr = ffff880037b65000
+|  PGD   |   PUD   |   PMD   |   PTE   |   OFFSET   |
++--------+---------+---------+---------+------------+
+|  272   |   000   |   445   |   357   |    0000    | IDX
+========================
+
+Walking PROCESS PGD
+PAGE INFO (1)
+VIRTUAL ADDRESS: ffff880037b65000
+Direct mapping: expected physical address 37b65000
+pgd offset = ffff880037b85880
+pgd val = 1a86063
+pud offset = ffff880001a86000 (ffff880037b85880 + 8 * 0)
+pmd offset = ffff880001a8ade8 (ffff880001a86000 + 8 * 1bd)
+(l3) page num = ffff880037a00000; offset = 165000
+PAGE DATA:
+present: 1
+page_flags: 0x1e3 -- individual flags follow:
+global: 1
+dirty: 1
+file: 1
+accessed: 1
+writeable: 1
+exec: 1
+huge: 1
+(l3) page frame address = 37a00000; offset = 165000
+PHYSICAL ADDRESS: 37b65000
+
+KERNEL IDENTITY MAPPED (on WRITE)
+VIRTUAL ADDRESS: ffff880037b65000
+Direct mapping: expected physical address 37b65000
+pgd offset = ffff880037b85880
+pgd val = 1a86063
+pud offset = ffff880001a86000 (ffff880037b85880 + 8 * 0)
+pmd offset = ffff880001a8ade8 (ffff880001a86000 + 8 * 1bd)
+(l3) page num = ffff880037a00000; offset = 165000
+PAGE DATA:
+present: 1
+page_flags: 0x1e3 -- individual flags follow:
+global: 1
+dirty: 1
+file: 1
+accessed: 1
+writeable: 1
+exec: 1
+huge: 1
+(l3) page frame address = 37a00000; offset = 165000
+PHYSICAL ADDRESS: 37b65000

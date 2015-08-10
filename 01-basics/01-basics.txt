@@ -1,0 +1,156 @@
+Basic Module Commands
+====================
+
+lsmod
+Lists installed modules. The contents are essentially the same (though not identical) as those in
+/proc/modules.
+
+----
+
+insmod
+Links a loadable module into the running kernel, resolving all symbols. The -f option will try
+to force loading with a version mismatch between kernel and module.
+The command can be used to pass parameters into modules, e.g.:
+
+insmod my_driver.ko irq=10
+
+----
+
+rmmod
+    Unloads modules from the running kernel. A list of modules can be given as in:
+rmmod drv1 drv2
+NOTE: no .ko extension is required
+
+----
+
+modprobe
+The command can load (or unload with the -r option) a stack of modules that depend on each other,
+and can be used instead of insmod.
+It can also be used to try a list of modules, and quit whenever one is first found and successfully
+loaded.
+Whenever there are new modules added, or there is a change in location, depmode should be run.
+Parameters can be passed to modprobe in the same way they are passed to insmod:
+
+modprobe my_driver irq=10
+
+NOTE: no .ko extension is required
+
+EXAMPLE 1
+hello_world.c
+=============
+
+A minimum kernel module that provides two mandatory entry points: init and exit.
+The functions can have arbitrary names; module_init() and module_exit macros label
+init/exit functions as such.
+
+__init and __exit macros are used to place the functions in special segments so
+that the memory used by such functions can be reclaimed.
+
+Unless MODULE_LICENSE() macro is used to specify one of the open source licenses,
+the module will be marked as TAINTED.
+
+Installation/removal of the module is done like this:
+
+# insmod hello_world.ko
+
+# rmmod hello_world
+
+The module prints the following messages:
+
+dmesg
+<omitted irrelevant output>
+
+[ 6685.302239] Module loaded at 0xffffffffa0025000
+[ 6702.535525] Module unloaded from 0xffffffffa000c000
+
+---------------------------------
+
+EXAMPLE 2
+parameters.c
+============
+
+A module that illustrates setting of module parameters when the module gets loaded. Various
+helper macros are used to declare parameters that can be set by insmod/modprobe, the module's
+variable names can be referenced directly (par1, arr1 in this example) or via aliases (named1, string1).
+
+Parameter variables remain unset (i.e. zero) if insmod does not specify parameter names/values:
+
+[12638.353132] Module loaded at 0xffffffffa0025000
+[12638.353136] par1 = 0
+[12638.353139] par2 = 0
+[12638.353141] arr1 = {0,0,0,0,0,0,0,0,}
+[12638.353143] str1 = 
+
+Here is the example of setting all supported parameters for the module; the command:
+
+# insmod parameters.ko par1=1 named1=2 arr1=11,12,13,14,15,16,17 string1=MODULE_PARAM
+
+results in the following setup
+
+[12942.974689] Module loaded at 0xffffffffa0025000
+[12942.974693] par1 = 1
+[12942.974696] par2 = 2
+[12942.974698] arr1 = {11,12,13,14,15,16,17,0}
+[12942.974700] str1 = MODULE_PARAM
+
+NOTE: 'par2' is aliased to 'named1', 'str1' to 'string1'; 
+insmod references the aliases to set up parameters.
+
+NOTE: module_param_array() doesn't seem to support the 'num' parameter properly:
+module_param_array(name, type, num, perm) is used throughout kernel code with num set to NULL.
+
+EXAMPLE 3
+=========
+
+A module that illustrates a few concepts.
+
+1) Multiple devices can be serviced by a single module. We create the
+requested number of pseudo devices that can be accessed individually. Shared/distinct code
+or any combination thereof can service such devices. We limit ourselves to
+displaying a distinct message for each device that contains the device number.
+
+We parametrized the number of devices to create so the decision on how many
+devices to create can be taken during module installation.
+
+Device nodes must be removed upon exit. 
+
+2) udev is used to create device nodes for devices supported by the module. In
+order to create a device node, the device class must be registered first with
+class_create(). Then, a number of device nodes can be created: the class created with
+and class_create() and a unique dev_t must be supplied. The major/minor 
+numbers that make up the dev_t will then be visible in the /dev directory.
+
+3) The dev_t for the device being accessed can be detected at the time when
+the open file operation is performed (as a result of user space programs trying to open the
+device node). inode->i_cdev contains the address of the structure. We employ a
+technique when the cdev structures for individual devices are contained within
+a larger 'struct devinfo' structure. The address of the containing devinfo structure
+can be calculated with the container_of() macro. This address is saved as the
+private data for the file struct passed in the open entry point. The private
+data can be easily extracted during subsequent file access (read, write,
+release, etc.) calls. 
+
+Here is an example session of loading/accessing the module and its 'devices'.
+
+Create 5 devices/nodes
+
+insmod cdev.ko devcnt=5
+
+List device nodes
+
+# ll /dev/cdev*
+crw-rw---- 1 root root 248, 0 Jun  8 17:31 /dev/cdev0
+crw-rw---- 1 root root 248, 1 Jun  8 17:31 /dev/cdev1
+crw-rw---- 1 root root 248, 2 Jun  8 17:31 /dev/cdev2
+crw-rw---- 1 root root 248, 3 Jun  8 17:31 /dev/cdev3
+crw-rw---- 1 root root 248, 4 Jun  8 17:31 /dev/cdev4
+
+Read each device in turn.
+
+# cat /dev/cdev*
+Response from device 0
+Response from device 1
+Response from device 2
+Response from device 3
+Response from device 4
+

@@ -1,0 +1,26 @@
+#!/bin/bash
+
+function err_exit()
+{
+    echo "$@" 1>&2
+    exit 1
+}
+
+./t_ioctl -r || err_exit "rewind failed"
+
+./t_ioctl -q
+while [ "$?" -eq "0" ]
+do
+    # advance to the next position
+    ./t_ioctl -n
+    # get current item
+    s=$(./t_ioctl -g)
+    if [ "$?" -ne "0" ]; then err_exit "get failed"; fi
+    echo "$s"
+    # query if there are more items
+    ./t_ioctl -q
+done
+
+if [ "$?" -eq "1" ]; then err_exit "hasnext failed"; fi
+
+exit 0

@@ -1,0 +1,101 @@
+1. Mount debugfs:
+
+mount -t debugfs none /sys/kernel/debug
+
+NOTE: the /sys/kernel/debug mount point is automatically created by the kernel
+that was build with the debugfs config option.
+
+NOTE: the source device should be 'none'.
+
+2. Install the module
+
+[root@ester4 04-helper-fs]# insmod debugfs.ko
+
+3. We now cd to the mount point directory:
+
+[root@ester4 04-helper-fs]# cd /sys/kernel/debug/
+
+4. We see the 'dfs' directory in this tree. The parent directory for 'dfs' was
+specified as NULL in our module code, so the entry ends up in the topmost 
+debugfs directory.
+
+[root@ester4 debug]# ll
+total 0
+drwxr-xr-x 34 root root 0 Jul 24 09:45 bdi
+drwxr-xr-x  3 root root 0 Jul 24 09:45 boot_params
+drwxr-xr-x  2 root root 0 Jul 24 10:33 dfs
+drwxr-xr-x  2 root root 0 Jul 24 09:45 dynamic_debug
+drwxr-xr-x  2 root root 0 Jul 24 09:45 extfrag
+-r--r--r--  1 root root 0 Jul 24 09:45 gpio
+drwxr-xr-x  4 root root 0 Jul 24 09:45 hid
+drwxr-xr-x  2 root root 0 Jul 24 09:45 kprobes
+drwxr-xr-x  2 root root 0 Jul 24 09:45 mce
+-rw-r--r--  1 root root 0 Jul 24 09:45 sched_features
+drwxr-xr-x  6 root root 0 Jul 24 09:45 tracing
+drwxr-xr-x  3 root root 0 Jul 24 09:45 usb
+-r--r--r--  1 root root 0 Jul 24 09:45 vmmemctl
+drwxr-xr-x  2 root root 0 Jul 24 09:45 x86
+drwxr-xr-x  4 root root 0 Jul 24 09:45 xen
+
+4. Change to our 'dfs' directory and check the contents:
+
+[root@ester4 debug]# cd dfs
+[root@ester4 dfs]# ll
+total 0
+-rw------- 1 root root 0 Jul 24 10:33 u16
+-rw------- 1 root root 0 Jul 24 10:33 u32
+-rw------- 1 root root 0 Jul 24 10:33 u64
+-rw------- 1 root root 0 Jul 24 10:33 u8
+
+5. If we output each entry to see our initialized values of each backing variable:
+
+[root@ester4 dfs]# cat u*
+666
+77777
+8888888
+55
+
+6. Now we can overwrite values just by writing to the respective debugfs entry
+
+[root@ester4 dfs]# echo 11 > u8
+[root@ester4 dfs]# cat u8
+11
+
+7. Wrap-around occurs if the value is outside the supported
+range for an entry:
+
+[root@ester4 dfs]# echo 65535 > u16
+[root@ester4 dfs]# cat u16
+65535
+[root@ester4 dfs]# echo 65536 > u16
+[root@ester4 dfs]# cat u16
+0
+
+7. Go back to the debugfs mount point:
+
+[root@ester4 dfs]# cd ..
+
+8. Remove our module
+
+[root@ester4 debug]# rmmod debugfs
+
+9. All entries disappeared (the top-level directory was explicitly removed 
+recursively by our exit function):
+
+[root@ester4 debug]# ll
+total 0
+drwxr-xr-x 34 root root 0 Jul 24 09:45 bdi
+drwxr-xr-x  3 root root 0 Jul 24 09:45 boot_params
+drwxr-xr-x  2 root root 0 Jul 24 09:45 dynamic_debug
+drwxr-xr-x  2 root root 0 Jul 24 09:45 extfrag
+-r--r--r--  1 root root 0 Jul 24 09:45 gpio
+drwxr-xr-x  4 root root 0 Jul 24 09:45 hid
+drwxr-xr-x  2 root root 0 Jul 24 09:45 kprobes
+drwxr-xr-x  2 root root 0 Jul 24 09:45 mce
+-rw-r--r--  1 root root 0 Jul 24 09:45 sched_features
+drwxr-xr-x  6 root root 0 Jul 24 09:45 tracing
+drwxr-xr-x  3 root root 0 Jul 24 09:45 usb
+-r--r--r--  1 root root 0 Jul 24 09:45 vmmemctl
+drwxr-xr-x  2 root root 0 Jul 24 09:45 x86
+drwxr-xr-x  4 root root 0 Jul 24 09:45 xen
+

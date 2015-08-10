@@ -1,0 +1,55 @@
+hrtimer
+=======
+
+It is possible to achieve subjiffy resolution with high-res timers (jiffies
+does not change during the sequence). However, high-res timer
+still operate with microsecond precision (about 10 us).
+
+We can see that we are in interrupt context and that the timer gets serviced
+by softirq kernel thread.
+
+hrtimer: initializing
+
+=== hrtimer: shot  1 ===
+current ktime (ns): 6516996164716
+ns elapsed since last shot: -1435086100191103762
+current jiffies: 4301184292
+jiffies elapsed since last shot: 0
+in_interrupt: 1, cpu: 0
+PID: 4, command: ksoftirqd/0
+
+=== hrtimer: shot  2 ===
+current ktime (ns): 6516996180518
+ns elapsed since last shot: 15802
+current jiffies: 4301184292
+jiffies elapsed since last shot: 0
+in_interrupt: 1, cpu: 0
+PID: 4, command: ksoftirqd/0
+
+=== hrtimer: shot  3 ===
+current ktime (ns): 6516996191819
+ns elapsed since last shot: 11301
+current jiffies: 4301184292
+jiffies elapsed since last shot: 0
+in_interrupt: 1, cpu: 0
+PID: 4, command: ksoftirqd/0
+
+=== hrtimer: shot  4 ===
+current ktime (ns): 6516996201917
+ns elapsed since last shot: 10098
+current jiffies: 4301184292
+jiffies elapsed since last shot: 0
+in_interrupt: 1, cpu: 0
+PID: 4, command: ksoftirqd/0
+
+=== hrtimer: shot  5 ===
+current ktime (ns): 6516996211594
+ns elapsed since last shot: 9677
+current jiffies: 4301184292
+jiffies elapsed since last shot: 0
+in_interrupt: 1, cpu: 0
+PID: 4, command: ksoftirqd/0
+
+hrtimer: exiting
+
+We changed the ns setting for the timer period to 5 ms, but timer still fires at about 10 us intervals.

@@ -1,0 +1,29 @@
+./t_pageinfo 
+data segment
+PAGE -- 4 KB:
+present: 1
+page_flags: 0x8000000000000067 -- individual flags follow:
+global: 0
+dirty: 1
+accessed: 1
+writeable: 1
+exec: 0
+huge: 0
+virtual address: 601278 - physical page address: 1a07cd000
+stack segment
+PAGE -- 4 KB:
+present: 0
+stack segment - 2 (after write)
+PAGE -- 4 KB:
+present: 0
+code segment
+PAGE -- 4 KB:
+present: 1
+page_flags: 0x25 -- individual flags follow:
+global: 0
+dirty: 0
+accessed: 1
+writeable: 0
+exec: 1
+huge: 0
+
