@@ -13,6 +13,8 @@
 #include "pageinfo_ioctl.h"
 
 #define DEVNAME "/dev/pageinfo"
+#define MAX_PATH 256
+#define TRACING_PATH "/sys/kernel/debug/tracing"
 
 #define PFLAG_PRESENT 0
 #define PFLAG_GLOBAL 1
@@ -25,6 +27,13 @@
 
 int data;
 char *page_size[] = { "N/A ", "1 GB", "2 MB", "4 KB" };
+
+
+struct opt_struct {
+    int trace;
+};
+
+static struct opt_struct options;
 
 unsigned long read_cr3() {
     unsigned long res;
@@ -49,6 +58,43 @@ static char *pflag_val(int flag, int value) {
     };
 
     return page_flags[flag][value];
+}
+
+
+char *tracing_file(char *file)
+{
+    static char nambuf[MAX_PATH+1];
+    snprintf(nambuf, MAX_PATH, "%s/%s", TRACING_PATH, file);
+    return nambuf;
+}
+
+void trace_switch(char *file, char *val)
+{
+    int fd, len;
+
+    fd = open(tracing_file(file), O_WRONLY);
+    if (fd == -1)
+        serr_exit("open() failed for tracing file"); 
+
+    len = strlen(val);
+    if (write(fd, val, len) != len)
+        serr_exit("write() to tracing file failed");
+
+    close(fd);
+}
+
+void trace_start(void)
+{
+    printf("starting trace\n");
+    trace_switch("current_tracer", "nop");
+    trace_switch("tracing_enabled", "1");
+    trace_switch("current_tracer", "function_graph");
+}
+
+void trace_stop(void)
+{
+    trace_switch("tracing_enabled", "0");
+    printf("trace stopped\n");
 }
 
 void parse_va(struct pageinfo *info)
@@ -103,6 +149,9 @@ void test_codeseg(int fd)
 {
     struct pageinfo info;
 
+    options.trace = getpid();
+    if (options.trace % 2) printf("GGG");
+  
     /* ------------- CODE -------------- */
 
     info.va = (unsigned long ) &parse_va;
@@ -132,7 +181,7 @@ void touch_mem(int fd, char *addr)
 {
     struct pageinfo info;
     
-    /* ------------- STACK -------------- */
+    /* ------------- INITIAL STATE -------------- */
 
     info.va = (unsigned long ) addr;
 
@@ -143,7 +192,10 @@ void touch_mem(int fd, char *addr)
     parse_va(&info);
     print_faults(&info);
 
-    /* ------------- STACK 2 -------------- */
+    /* ------------- WRITE -------------- */
+
+    if (options.trace == 1)
+        trace_start();
 
     /* now do a write to stack and see the changes */
     __asm__ ("movb $0x41, %%al\n\t"
@@ -151,6 +203,9 @@ void touch_mem(int fd, char *addr)
             : 
             : "r" (addr)
             : "%eax"); 
+
+    if (options.trace == 1)
+        trace_stop();
 
     printf("+++++ Written %c to %p ++++++\n", *addr, addr);
 
@@ -175,6 +230,7 @@ void test_stackseg(int fd, int offset)
     touch_mem(fd, (char *) &asize);
 }
 
+
 void test_mmap(int fd, int offset)
 {
     int mfd, size;
@@ -182,6 +238,7 @@ void test_mmap(int fd, int offset)
 
     size = getpagesize() * 2;
     printf("size = %d\n", size);
+
     mfd = open("t_pageinfo.mmap", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
     if (mfd == -1)
         serr_exit("open() failed");
@@ -221,7 +278,7 @@ int main(int argc, char *argv[])
     if ((fd = open(DEVNAME, O_RDWR)) == -1)
         serr_exit("open() failed");
 
-    while ((opt = getopt(argc, argv, "cds:m:r")) != -1) {
+    while ((opt = getopt(argc, argv, "cds:m:rt")) != -1) {
         switch (opt) {
             case 'd':
                 test_dataseg(fd);
@@ -243,6 +300,10 @@ int main(int argc, char *argv[])
 
             case 'r':
                 print_regs();
+                break;
+
+            case 't':
+                options.trace=1;
                 break;
         }
     }
