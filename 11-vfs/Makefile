@@ -1,5 +1,5 @@
 ifneq ($(KERNELRELEASE),)
-   obj-m = vfs.o simplefs.o
+   obj-m = vfs.o verysimplefs.o
 
 else
    KERNELDIR ?= /lib/modules/$(shell uname -r)/build

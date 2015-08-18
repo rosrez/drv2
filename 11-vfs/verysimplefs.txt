@@ -1,0 +1,23 @@
+[root@ester4 orosovet]# mount -t verysimplefs none /home/orosovet/tmp
+[root@ester4 orosovet]# echo ?$
+
+?$
+[root@ester4 orosovet]# echo $?
+0
+
+[root@ester4 orosovet]# ll /home/orosovet/tmp
+total 0
+-rw-r--r-- 1 root root 0 Aug 18 00:28 counter0
+-rw-r--r-- 1 root root 0 Aug 18 00:28 counter1
+-rw-r--r-- 1 root root 0 Aug 18 00:28 counter2
+-rw-r--r-- 1 root root 0 Aug 18 00:28 counter3
+
+[root@ester4 orosovet]# mount
+.....
+tmpfs on /dev/shm type tmpfs (rw)
+/dev/sda1 on /boot type ext4 (rw)
+/dev/mapper/vg_wleste_data-lv_disk1 on /d1 type ext4 (rw)
+none on /home/orosovet/tmp type verysimplefs (rw)
+.....
+
+
