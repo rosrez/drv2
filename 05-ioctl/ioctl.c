@@ -114,7 +114,7 @@ static void ioc_next(void)
 
 }
 
-static int ioc_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+static long ioc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int rc;
 
@@ -165,7 +165,7 @@ static int ioc_ioctl(struct inode *inode, struct file *file, unsigned int cmd, u
 struct file_operations fops = {
     .owner = THIS_MODULE,
     .open = ioc_open,
-    .ioctl = ioc_ioctl 
+    .unlocked_ioctl = ioc_ioctl 
 };
 
 static void __init ioc_setup(void)

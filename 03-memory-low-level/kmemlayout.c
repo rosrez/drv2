@@ -1,5 +1,6 @@
 #include <linux/module.h>
 #include <linux/slab.h>
+#include <linux/version.h>
 
 /* architecture specific includes */
 
@@ -30,10 +31,11 @@ static __init int kml_init(void)
     printk(KERN_INFO "VMALLOC area size (MB): %ld\n", (VMALLOC_END - VMALLOC_START) / MB);
     printk(KERN_INFO "=================\n");
 
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,34)
     printk(KERN_INFO "KERNEL_IMAGE_START: %lx\n", KERNEL_IMAGE_START);
     printk(KERN_INFO "KERNEL_IMAG_SIZE (MB): %d\n", KERNEL_IMAGE_SIZE / MB);
     printk(KERN_INFO "=================\n");
-
+#endif
     printk(KERN_INFO "MODULES_VADDR: %lx\n", MODULES_VADDR);
     printk(KERN_INFO "MODULES_END: %lx\n", MODULES_END);
     printk(KERN_INFO "MODULES_LEN (MB): %ld\n", MODULES_LEN / MB);

@@ -108,7 +108,7 @@ out:
     return 0;
 }
 
-static int pi_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+static long pi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     int rc;
 
@@ -132,7 +132,7 @@ static int pi_ioctl(struct inode *inode, struct file *file, unsigned int cmd, un
 
 struct file_operations fops = {
     .owner = THIS_MODULE,
-    .ioctl = pi_ioctl
+    .unlocked_ioctl = pi_ioctl
 };
 
 static int __init pi_init(void)

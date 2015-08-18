@@ -1,3 +1,5 @@
+#include <linux/module.h>
+
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 #include <linux/pci.h>
@@ -42,8 +44,7 @@ int __init vms_init(void)
     /* Register a platform device */
     vms_dev = platform_device_register_simple("vmouse", -1, NULL, 0);
     if (IS_ERR(vms_dev)) {
-        PTR_ERR(vms_dev);
-        pr_info("vms_init: error\n");
+        pr_info("vms_init: error -- %d\n", (int) PTR_ERR(vms_dev));
     }
 
     /* Create a sysfs node to read simulated coordinates */
@@ -57,9 +58,25 @@ int __init vms_init(void)
         pr_info("input_alloc_device() failed\n");
 
     /* Announce that the virtual mouse will generate relative coordinates */
-    set_bit(EV_REL, vms_input_dev->evbit);
-    set_bit(REL_X, vms_input_dev->relbit);
-    set_bit(REL_Y, vms_input_dev->relbit);
+
+    /*
+       set_bit(EV_REL, vms_input_dev->evbit);
+       set_bit(REL_X, vms_input_dev->relbit);
+       set_bit(REL_Y, vms_input_dev->relbit);
+       */
+
+    vms_input_dev->name = "Virtual Mouse";
+    vms_input_dev->phys = "vmd/input0"; // "vmd" is the driver's name
+    vms_input_dev->id.bustype = BUS_VIRTUAL;
+    vms_input_dev->id.vendor  = 0x0000;
+    vms_input_dev->id.product = 0x0000;
+    vms_input_dev->id.version = 0x0000;
+
+    vms_input_dev->evbit[0] = BIT_MASK(EV_KEY) | BIT_MASK(EV_REL);
+    vms_input_dev->keybit[BIT_WORD(BTN_MOUSE)] = BIT_MASK(BTN_LEFT) | BIT_MASK(BTN_RIGHT) | BIT_MASK(BTN_MIDDLE);
+    vms_input_dev->relbit[0] = BIT_MASK(REL_X) | BIT_MASK(REL_Y);
+    vms_input_dev->keybit[BIT_WORD(BTN_MOUSE)] |= BIT_MASK(BTN_SIDE) | BIT_MASK(BTN_EXTRA);
+    vms_input_dev->relbit[0] |= BIT_MASK(REL_WHEEL);
 
     /* Register with the input subsystem */
     rc = input_register_device(vms_input_dev);
@@ -74,7 +91,7 @@ out:
     if (vms_input_dev)
         input_free_device(vms_input_dev);
 
-    return 0;
+    return -ENOMEM;
 }
 
 
