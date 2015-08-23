@@ -36,5 +36,5 @@ else
 
     # called from kernel build system: just declare what our modules are
     # note that obj-m is treated as a command (that's why it can be indented)
-    obj-m := debugfs.o
+    obj-m := debugfs.o seqfile.o
 endif
