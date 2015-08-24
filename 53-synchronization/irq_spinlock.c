@@ -18,8 +18,6 @@
 
 #define MAX_TIMES 10
 
-MODULE_LICENSE("Dual BSD/GPL");
-
 int irq_num = 16;
 
 module_param(irq_num, int, 0);
@@ -56,7 +54,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
 
     atomic_inc(&irq_basic_irq_count);
 
-    // schedule the bottom half
+    /*  schedule the bottom half */
     tasklet_schedule(&devinfo.tasklet);
 
     return IRQ_HANDLED;
@@ -74,7 +72,7 @@ void tasklet_bh(unsigned long arg) {
     time = alloc_bh_time();
     if (time == NULL) {
         pr_debug("alloc_bh_time=() failed");
-        return;     // skip this bottom half; cannot recover
+        return;     /*  skip this bottom half; cannot recover */
     }
 
     spin_lock_irqsave(&dev->time_lock, flags);
@@ -87,8 +85,8 @@ void tasklet_bh(unsigned long arg) {
     spin_lock(&dev->list_lock);
     pr_debug("BH: holding list lock -- adding another time entry");
 
-    // if count of IRQs exceeds a maximum, delete the first entry
-    // this means that our list is essentially a queue of a fixed size
+    /*  if count of IRQs exceeds a maximum, delete the first entry */
+    /*  this means that our list is essentially a queue of a fixed size */
     if (atomic_read(&irq_basic_irq_count) > MAX_TIMES) {
         timed = list_entry(dev->times.list.next, struct bh_time, list);
         list_del(dev->times.list.next);
@@ -132,23 +130,23 @@ int __init irq_basic_init(void) {
         return -ENOMEM;
     }
 
-    // initialize list head
+    /*  initialize list head */
     INIT_LIST_HEAD(&devinfo.times.list);
 
-    // init spinlocks
+    /*  init spinlocks */
     spin_lock_init(&devinfo.time_lock);
     spin_lock_init(&devinfo.list_lock);
 
-    // initialize the tasklet that will be the bottom half for our IRQ handler
+    /*  initialize the tasklet that will be the bottom half for our IRQ handler */
     tasklet_init(&devinfo.tasklet, tasklet_bh, (unsigned long) &devinfo);
 
-    result = request_irq(irq_num,   // IRQ number
-        irq_handler,                // the interrupt handler function
-        IRQF_SHARED,                // shared interrupt handler (formerly called SA_SHIRQ)
-        "irq_basic",                // a name, which appears in /proc/interrupts
-        &devinfo);       // any pointer to module's address space will do; this is used to distinguish between handlers
+    result = request_irq(irq_num,   /*  IRQ number */
+        irq_handler,                /*  the interrupt handler function */
+        IRQF_SHARED,                /*  shared interrupt handler (formerly called SA_SHIRQ) */
+        "irq_basic",                /*  a name, which appears in /proc/interrupts */
+        &devinfo);       /*  any pointer to module's address space will do; this is used to distinguish between handlers */
     if (result < 0) {
-        kfree(devinfo.buffer);     // free memory before returning
+        kfree(devinfo.buffer);     /*  free memory before returning */
         printk(KERN_DEBUG "Cannot register for irq number %d - reason: %d\n", irq_num, result);
         return result;
     }
@@ -160,20 +158,17 @@ int __init irq_basic_init(void) {
 void __exit irq_basic_exit(void) {
     struct bh_time *pos, *next;
 
-    remove_proc_entry("irqbasic", NULL);    // parent dir is NULL
+    remove_proc_entry("irqbasic", NULL);
 
-    // free the IRQ; as we share the IRQ, we need to indentify ourselves,
-    // so that the kernel frees up the resource on behalf of the right module;
-    // hence the second parameter (a pointer) is set to device struct
-    // to match the call to request_irq (see above)
+    /* as we share the IRQ, we need to supply the same 'cookie' as during handler registration */
     free_irq(irq_num, &devinfo);
 
-    // after tasklet_kill() returns we can be sure the tasklet will never be scheduled again
+    /* after tasklet_kill() returns it is certain the tasklet will never be scheduled again */
     tasklet_kill(&devinfo.tasklet);
 
-    // safe to free the list items; 
-    // now that the IRQ handlers and bottom halves are disabled no one else is using them now
+    /* the list is no longer shared: safe to free the list items;  */
     list_for_each_entry_safe(pos, next, &devinfo.times.list, list) {
+        list_del(&pos->list);
         kfree(pos);
     }
 
@@ -182,3 +177,8 @@ void __exit irq_basic_exit(void) {
 
 module_init(irq_basic_init);
 module_exit(irq_basic_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Oleg Rosowiecki");
+MODULE_DESCRIPTION("spinlock strategies for IRQ handler/bottom half/process context");
+
