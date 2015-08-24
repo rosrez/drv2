@@ -2,11 +2,13 @@ hrtimer
 =======
 
 It is possible to achieve subjiffy resolution with high-res timers (jiffies
-does not change during the sequence). However, high-res timer
-still operate with microsecond precision (about 10 us).
-
-We can see that we are in interrupt context and that the timer gets serviced
-by softirq kernel thread.
+does not change during the sequence). However, high-res timers
+still operate with microsecond precision (about 10 us). Changing the ns setting 
+for the timer period to 5 ms does not improve timer resolution since timer still 
+fires at about 10 us intervals.
+ 
+We can observe from the sequence that we are in a (soft) interrupt context and 
+that the timer gets serviced by one of the softirq kernel threads.
 
 hrtimer: initializing
 
@@ -51,5 +53,3 @@ in_interrupt: 1, cpu: 0
 PID: 4, command: ksoftirqd/0
 
 hrtimer: exiting
-
-We changed the ns setting for the timer period to 5 ms, but timer still fires at about 10 us intervals.
