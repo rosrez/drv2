@@ -6,6 +6,7 @@ TARGETS = \
 	syscall_32 \
 	syscall_cat \
 	showarg \
+	asm-inline
 
 all: $(TARGETS)
 	@echo "Done."
