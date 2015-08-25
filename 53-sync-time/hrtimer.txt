@@ -4,9 +4,9 @@ hrtimer
 It is possible to achieve subjiffy resolution with high-res timers 
 (notice that jiffies does not change during the sequence below). 
 
-However, high-res timers still operate with microsecond precision (about 10 or 20 us). 
-Setting the timer period to 1 or 5 ms does not improve timer resolution;
-the timer still fires at about 10 us intervals.
+However, high-res timers still operate with microsecond precision (about 5, 10 or 20 us). 
+Setting the timer period to 1 us does not improve timer resolution;
+on this system, the timer still fires at about 10 us intervals.
  
 We can observe from the sequence that we are in a (soft) interrupt context and 
 that the timer gets serviced by one of the softirq kernel threads.
