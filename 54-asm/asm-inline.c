@@ -111,11 +111,9 @@ static void atomic_dec(uint64_t counter) {
 }
 
 int main(int argc, char *argv[]) {
-    int rc;
-
     printf("Inline assembly samples\n");
 
-    rc = sys_write(STDOUT_FILENO, text, strlen(text));
+    sys_write(STDOUT_FILENO, text, strlen(text));
     cpuid_brand();
     string_copy();
     rdtscl_long();
