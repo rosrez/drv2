@@ -26,6 +26,7 @@ clean:
 else
 
     obj-m := irq_spinlock.o \
-				kthreadwq.o
+				kthreadwq.o \
+				hrtimer.o
 
 endif
