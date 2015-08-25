@@ -25,8 +25,8 @@ module_param(irqnum, int, 0);
 int maxitems = DEF_ITEMS;
 module_param(maxitems, int, 0);
 
-atomic_t irq_count = ATOMIC_INIT(0);
-atomic_t bh_count = ATOMIC_INIT(0);
+atomic_t irqsl_irq_count = ATOMIC_INIT(0);
+atomic_t irqsl_bh_count = ATOMIC_INIT(0);
 
 struct bh_time {
     struct list_head list;
@@ -55,7 +55,7 @@ irqreturn_t irq_handler(int irq, void *arg) {
     spin_unlock(&dev->time_lock);
     /* end of critical section */
 
-    atomic_inc(&irq_count);
+    atomic_inc(&irqsl_irq_count);
 
     /*  schedule the bottom half */
     tasklet_schedule(&dev->tasklet);
@@ -88,7 +88,7 @@ void tasklet_bh(unsigned long arg) {
     spin_lock(&dev->list_lock);
 
     /* If count of IRQs exceeds a maximum, delete the least recent entry */
-    if (atomic_read(&irq_count) > maxitems) {
+    if (atomic_read(&irqsl_irq_count) > maxitems) {
         timed = list_entry(dev->shots.list.next, struct bh_time, list);
         list_del(dev->shots.list.next);
         kfree(timed);
@@ -97,7 +97,7 @@ void tasklet_bh(unsigned long arg) {
     spin_unlock(&dev->list_lock);
     /* end of critical section */
 
-    atomic_inc(&bh_count);
+    atomic_inc(&irqsl_bh_count);
 }
 
 static void *irqsl_seq_start(struct seq_file *sf, loff_t *pos)
@@ -106,8 +106,8 @@ static void *irqsl_seq_start(struct seq_file *sf, loff_t *pos)
     struct list_head *lh = devinfo.shots.list.next;
     loff_t p1 = *pos;
 
-    seq_printf(sf, "IRQ count: %d\n", atomic_read(&irq_count));
-    seq_printf(sf, "Bottom half count: %d\n", atomic_read(&bh_count));
+    seq_printf(sf, "IRQ count: %d\n", atomic_read(&irqsl_irq_count));
+    seq_printf(sf, "Bottom half count: %d\n", atomic_read(&irqsl_bh_count));
 
     spin_lock_bh(&devinfo.list_lock);
 

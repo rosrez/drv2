@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>         
 #include <linux/fs.h>               
+#include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/poll.h>             /*  poll_wait() */
 #include <linux/timer.h>
