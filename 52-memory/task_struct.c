@@ -92,7 +92,7 @@ static void *ts_seq_start(struct seq_file *sf, loff_t *pos)
     seq_printf(sf, "Current task VM areas: =====\n");
     print_vma_hdr(sf);
     
-    return current->mm->mmap;
+    return current->mm->mmap;   /* first VMA */
 }
 
 static void *ts_seq_next(struct seq_file *sf, void *v, loff_t *pos)

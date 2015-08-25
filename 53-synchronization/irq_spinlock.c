@@ -13,53 +13,57 @@
 #include <linux/types.h>
 #include <linux/errno.h>
 #include <linux/spinlock.h>
+#include <linux/seq_file.h> 
 
 #include <asm/atomic.h>
 
-#define MAX_TIMES 10
+#define DEF_ITEMS 10
 
-int irq_num = 16;
+int irqnum = 16;
+module_param(irqnum, int, 0);
 
-module_param(irq_num, int, 0);
+int maxitems = DEF_ITEMS;
+module_param(maxitems, int, 0);
 
-atomic_t irq_basic_irq_count = ATOMIC_INIT(0);
-atomic_t irq_basic_bh_count = ATOMIC_INIT(0);
+atomic_t irq_count = ATOMIC_INIT(0);
+atomic_t bh_count = ATOMIC_INIT(0);
 
 struct bh_time {
     struct list_head list;
     struct timeval tv;
 };
 
-struct irq_dev_info {
+struct dev_info {
     char *buffer;
     int  length;
     struct tasklet_struct tasklet;
-    struct bh_time times;
-    struct timeval irq_time;
+    struct bh_time shots;       /* the list of timestamps -- populated by the botom half tasklet */
+    struct timeval irq_time;    /* the most recent timestamp -- populated by the IRQ handler */
 
-    spinlock_t time_lock;
-    spinlock_t list_lock;
+    spinlock_t time_lock;       /* protects irq_time */
+    spinlock_t list_lock;       /* protects the list of timestamps */
 };
 
-struct irq_dev_info devinfo;
+static struct dev_info devinfo;
 
-irqreturn_t irq_handler(int irq, void *dev_id) {
-    struct irq_dev_info *dev = (struct irq_dev_info *) dev_id;
+irqreturn_t irq_handler(int irq, void *arg) {
+    struct dev_info *dev = (struct dev_info *) arg;
 
+    /* critical section: data shared with bottom half */
     spin_lock(&dev->time_lock);
-    pr_info("IRQ: Holding time lock");
     do_gettimeofday(&dev->irq_time);
     spin_unlock(&dev->time_lock);
-    pr_info("IRQ: Released time lock");
+    /* end of critical section */
 
-    atomic_inc(&irq_basic_irq_count);
+    atomic_inc(&irq_count);
 
     /*  schedule the bottom half */
-    tasklet_schedule(&devinfo.tasklet);
+    tasklet_schedule(&dev->tasklet);
 
     return IRQ_HANDLED;
 }
 
+/* called from a bottom half: kmalloc() may not sleep */
 struct bh_time *alloc_bh_time(void) {
     return kmalloc(sizeof(struct bh_time), GFP_ATOMIC);
 }
@@ -67,118 +71,146 @@ struct bh_time *alloc_bh_time(void) {
 void tasklet_bh(unsigned long arg) {
     unsigned long flags;
     struct bh_time *time, *timed;
-    struct irq_dev_info *dev = (struct irq_dev_info *) arg;
+    struct dev_info *dev = (struct dev_info *) arg;
 
-    time = alloc_bh_time();
-    if (time == NULL) {
-        pr_debug("alloc_bh_time=() failed");
-        return;     /*  skip this bottom half; cannot recover */
-    }
+    if ((time = alloc_bh_time()) == NULL)
+        return;         /* skip this bottom half; cannot recover */
 
+    /* critical section: data shared with IRQ handler */
     spin_lock_irqsave(&dev->time_lock, flags);
-    pr_debug("BH: holding time lock -- adding another time entry");
     memmove(&time->tv, &dev->irq_time, sizeof(dev->irq_time));
     spin_unlock_irqrestore(&dev->time_lock, flags);
-    pr_debug("BH: released time lock");
+    /* end of critical section */
 
     INIT_LIST_HEAD(&time->list);
-    spin_lock(&dev->list_lock);
-    pr_debug("BH: holding list lock -- adding another time entry");
 
-    /*  if count of IRQs exceeds a maximum, delete the first entry */
-    /*  this means that our list is essentially a queue of a fixed size */
-    if (atomic_read(&irq_basic_irq_count) > MAX_TIMES) {
-        timed = list_entry(dev->times.list.next, struct bh_time, list);
-        list_del(dev->times.list.next);
+    /* critical section: data shared with process context */
+    spin_lock(&dev->list_lock);
+
+    /* If count of IRQs exceeds a maximum, delete the least recent entry */
+    if (atomic_read(&irq_count) > maxitems) {
+        timed = list_entry(dev->shots.list.next, struct bh_time, list);
+        list_del(dev->shots.list.next);
         kfree(timed);
     }
-    list_add_tail(&time->list, &dev->times.list);
+    list_add_tail(&time->list, &dev->shots.list);
     spin_unlock(&dev->list_lock);
-    pr_debug("BH: released list lock");
+    /* end of critical section */
 
-    atomic_inc(&irq_basic_bh_count);
+    atomic_inc(&bh_count);
 }
 
-int irq_basic_read_procmem(char *buf, char **start, off_t offset,
-        int count, int *eof, void *data) {
-    struct bh_time *time;
-    char *buf2 = buf;
+static void *irqsl_seq_start(struct seq_file *sf, loff_t *pos)
+    __acquires(devinfo.list_lock)
+{
+    struct list_head *lh = devinfo.shots.list.next;
+    loff_t p1 = *pos;
 
-    memmove(buf2, devinfo.buffer, devinfo.length);
-    buf2 += devinfo.length;
-    buf2 += sprintf(buf2, "IRQ count: %d\n", atomic_read(&irq_basic_irq_count));
-    buf2 += sprintf(buf2, "Bottom half count: %d\n", atomic_read(&irq_basic_bh_count));
+    seq_printf(sf, "IRQ count: %d\n", atomic_read(&irq_count));
+    seq_printf(sf, "Bottom half count: %d\n", atomic_read(&bh_count));
 
     spin_lock_bh(&devinfo.list_lock);
-    pr_info("PROC: Holding list lock -- adding entry");
-    list_for_each_entry(time, &devinfo.times.list, list) {
-        buf2 += sprintf(buf2, "Time: %10i.%06i\n", (int) time->tv.tv_sec, (int) time->tv.tv_usec);
-    }
-    spin_unlock_bh(&devinfo.list_lock);
-    pr_info("PROC: Release list lock");
 
-    *eof = 1;
-    return buf2 - buf; 
+    while (lh != &devinfo.shots.list) {
+        if (p1-- == 0)
+            return lh;
+        lh = lh->next;
+    }
+
+    return NULL;
 }
 
-int __init irq_basic_init(void) {
-    int result;
+static void *irqsl_seq_next(struct seq_file *sf, void *v, loff_t *pos)
+{
+    struct list_head *lh = (struct list_head *) v;
+    lh = lh->next;
+    (*pos)++;
+    return lh == &devinfo.shots.list ? NULL : lh;
+}
 
-    devinfo.buffer = kmalloc(4096, GFP_KERNEL);
-    if (!devinfo.buffer) {
-        printk(KERN_DEBUG "Cannot allocate memory: kmalloc() failed\n");
-        return -ENOMEM;
-    }
+static void irqsl_seq_stop(struct seq_file *sf, void *v)
+    __releases(devinfo.list_lock)
+{
+    spin_unlock_bh(&devinfo.list_lock);
+}
 
-    /*  initialize list head */
-    INIT_LIST_HEAD(&devinfo.times.list);
-
-    /*  init spinlocks */
-    spin_lock_init(&devinfo.time_lock);
-    spin_lock_init(&devinfo.list_lock);
-
-    /*  initialize the tasklet that will be the bottom half for our IRQ handler */
-    tasklet_init(&devinfo.tasklet, tasklet_bh, (unsigned long) &devinfo);
-
-    result = request_irq(irq_num,   /*  IRQ number */
-        irq_handler,                /*  the interrupt handler function */
-        IRQF_SHARED,                /*  shared interrupt handler (formerly called SA_SHIRQ) */
-        "irq_basic",                /*  a name, which appears in /proc/interrupts */
-        &devinfo);       /*  any pointer to module's address space will do; this is used to distinguish between handlers */
-    if (result < 0) {
-        kfree(devinfo.buffer);     /*  free memory before returning */
-        printk(KERN_DEBUG "Cannot register for irq number %d - reason: %d\n", irq_num, result);
-        return result;
-    }
-
-    create_proc_read_entry("irqbasic", 0, NULL, irq_basic_read_procmem, NULL);     
+static int irqsl_seq_show(struct seq_file *sf, void *v)
+{
+    struct list_head *litem = (struct list_head *) v;
+    struct bh_time *time = container_of(litem, struct bh_time, list); 
+    seq_printf(sf, "Time: %10i.%06i\n", (int) time->tv.tv_sec, (int) time->tv.tv_usec);
     return 0;
 }
 
-void __exit irq_basic_exit(void) {
-    struct bh_time *pos, *next;
+static struct seq_operations seq_ops = {
+    .start      = irqsl_seq_start,
+    .next       = irqsl_seq_next,
+    .stop       = irqsl_seq_stop,
+    .show       = irqsl_seq_show,
+};
 
-    remove_proc_entry("irqbasic", NULL);
-
-    /* as we share the IRQ, we need to supply the same 'cookie' as during handler registration */
-    free_irq(irq_num, &devinfo);
-
-    /* after tasklet_kill() returns it is certain the tasklet will never be scheduled again */
-    tasklet_kill(&devinfo.tasklet);
-
-    /* the list is no longer shared: safe to free the list items;  */
-    list_for_each_entry_safe(pos, next, &devinfo.times.list, list) {
-        list_del(&pos->list);
-        kfree(pos);
-    }
-
-    kfree(devinfo.buffer); 
+static int irqsl_seq_open(struct inode *inode, struct file *file)
+{
+    return seq_open(file, &seq_ops);
 }
 
-module_init(irq_basic_init);
-module_exit(irq_basic_exit);
+static struct file_operations proc_fops = {
+    .open       = irqsl_seq_open,
+    .read       = seq_read,
+    .llseek     = seq_lseek,
+    .release    = seq_release,
+};
+
+static struct proc_dir_entry *proc_entry;
+
+int __init irqsl_init(void) {
+    int rc;
+
+    /*  initialize list head */
+    INIT_LIST_HEAD(&devinfo.shots.list);
+
+    /* initialize spinlocks */
+    spin_lock_init(&devinfo.time_lock);
+    spin_lock_init(&devinfo.list_lock);
+
+    /* initialize the tasklet that will be the bottom half for our IRQ handler */
+    tasklet_init(&devinfo.tasklet, tasklet_bh, (unsigned long) &devinfo);
+
+    rc = request_irq(irqnum,
+        irq_handler,
+        IRQF_SHARED,
+        "irqslock",
+        &devinfo);
+    if (rc < 0) {
+        kfree(devinfo.buffer);     /*  free memory before returning */
+        pr_debug("Cannot register for irq number %d - reason: %d\n", irqnum, rc);
+        return rc;
+    }
+
+    proc_entry = proc_create("irqslock", 0666, NULL, &proc_fops);     
+    return 0;
+}
+
+void __exit irqsl_exit(void) {
+    struct bh_time *pos, *next;
+
+    remove_proc_entry("irqslock", NULL);
+
+    /* since we share the IRQ number, we need to supply the same 'cookie' as during handler registration */
+    free_irq(irqnum, &devinfo);
+
+    tasklet_kill(&devinfo.tasklet);
+
+    /* the list is no longer shared: safe to free the list items  */
+    list_for_each_entry_safe(pos, next, &devinfo.shots.list, list) {
+        list_del(&pos->list);   /* tidy up as usual, though it's redundant here */
+        kfree(pos);
+    }
+}
+
+module_init(irqsl_init);
+module_exit(irqsl_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Oleg Rosowiecki");
 MODULE_DESCRIPTION("spinlock strategies for IRQ handler/bottom half/process context");
-

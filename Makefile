@@ -1,10 +1,8 @@
-EXCLDIRS='^.$$'
-
-SUBDIRS=$(shell find . -maxdepth 1 -type d | grep -v -E $(EXCLDIRS)) 
+SUBDIRS=$(shell find . -maxdepth 1 -mindepth 1 -type d) 
 
 # The default is to build modules
 
-all:
+default:
 	@for dir in $(SUBDIRS); do \
 	  if [ ! -f $$dir/Makefile ]; then \
 	    continue; \
@@ -22,4 +20,4 @@ clean:
 	  $(MAKE) -C $$dir clean; \
 	done
 
-.PHONY: all clean 
+.PHONY: default clean 
