@@ -22,7 +22,8 @@ static char *buffer;
 
 static struct class *mmapd_class;
 
-static int mmapd_mmap(struct file *file, struct vm_area_struct *vma) {
+static int mmapd_mmap(struct file *file, struct vm_area_struct *vma) 
+{
     long int pfn;
 
     /*  offset 'into' the device (supplied in pages) */
@@ -55,7 +56,8 @@ static int mmapd_mmap(struct file *file, struct vm_area_struct *vma) {
     return 0;    
 }
 
-static ssize_t mmapd_read(struct file *file, char __user *buf, size_t count, loff_t *pos) {
+static ssize_t mmapd_read(struct file *file, char __user *buf, size_t count, loff_t *pos) 
+{
     if (*pos >= capacity)
         return 0;   /*  EOF */
 
@@ -69,7 +71,8 @@ static ssize_t mmapd_read(struct file *file, char __user *buf, size_t count, lof
     return count;
 }
 
-static ssize_t mmapd_write(struct file *file, const char __user *buf, size_t count, loff_t *pos) {
+static ssize_t mmapd_write(struct file *file, const char __user *buf, size_t count, loff_t *pos) 
+{
     if (*pos >= capacity)
         return -ENOSPC;
 
@@ -83,7 +86,8 @@ static ssize_t mmapd_write(struct file *file, const char __user *buf, size_t cou
     return count;
 }
 
-static loff_t mmapd_llseek(struct file *file, loff_t offset, int whence) {
+static loff_t mmapd_llseek(struct file *file, loff_t offset, int whence) 
+{
     loff_t newpos;
 
     switch (whence) {
@@ -113,7 +117,8 @@ static struct file_operations mmapd_fops = {
     .mmap =     mmapd_mmap,
 };
 
-static int __init mmapd_init(void) {
+static int __init mmapd_init(void) 
+{
     int rc;
 
     /* allocate one character device */
@@ -172,7 +177,8 @@ fail_class_create:
     return rc;
 }
 
-static void __exit mmapd_exit(void) {
+static void __exit mmapd_exit(void) 
+{
     cdev_del(cdev);
     kfree(buffer);
     class_destroy(mmapd_class);
@@ -186,4 +192,4 @@ module_exit(mmapd_exit);
 
 MODULE_AUTHOR("Oleg Rosowiecki");
 MODULE_DESCRIPTION("Mapping kernel pages to userspace");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

@@ -51,27 +51,22 @@ struct dev_info {
 
 static struct dev_info dev_info[MAX_DEVS];
 
-static unsigned int polld_poll(struct file *filp, poll_table *wait) {
+static unsigned int polld_poll(struct file *filp, poll_table *wait) 
+{
     struct dev_info *dev = filp->private_data;
     unsigned int revents = 0;
-
-    pr_info("%s: polling dev %d\n", MODNAME, dev->number);
 
     poll_wait(filp, &dev->wq_read, wait);
 
     if (atomic_read(&dev->ready_to_read))
         revents |= POLLIN | POLLRDNORM;
     
-    pr_info("%s: polling dev %d complete; returning %u\n", MODNAME, dev->number, revents);
-
     return revents;
 }
 
-static ssize_t polld_read(struct file *filp, char __user *buf, size_t count, loff_t *pos) {
+static ssize_t polld_read(struct file *filp, char __user *buf, size_t count, loff_t *pos)
+{
     struct dev_info *dev = filp->private_data;
-
-    pr_info("%s: reading dev %d (ready = %d)\n", 
-            MODNAME, dev->number, atomic_read(&dev->ready_to_read));
 
     if (wait_event_interruptible(dev->wq_read, atomic_read(&dev->ready_to_read)) < 0)
         return -ERESTARTSYS;
@@ -81,16 +76,16 @@ static ssize_t polld_read(struct file *filp, char __user *buf, size_t count, lof
 
     atomic_set(&dev->ready_to_read, 0); 
 
-    pr_info("%s: read dev %d complete; returning %d\n", MODNAME, dev->number, 1);
-
     return 1;
 }
 
-static ssize_t polld_write(struct file *filp, const char __user *buf, size_t count, loff_t *pos) {
+static ssize_t polld_write(struct file *filp, const char __user *buf, size_t count, loff_t *pos) 
+{
     return count;   /*  the writer will think it has written all its data */
 }
 
-static int polld_open(struct inode *inode, struct file *filp) {
+static int polld_open(struct inode *inode, struct file *filp) 
+{
     filp->private_data = container_of(inode->i_cdev, struct dev_info, cdev);
     return 0;
 }
@@ -103,7 +98,8 @@ static struct file_operations polld_fops = {
     .poll =     polld_poll,
 };
 
-static void polld_timer_func(unsigned long arg) {
+static void polld_timer_func(unsigned long arg) 
+{
     struct dev_info *dev = (struct dev_info *) arg;
 
     pr_info("%s: timer %d fired\n", MODNAME, dev->number); 
@@ -114,11 +110,12 @@ static void polld_timer_func(unsigned long arg) {
     mod_timer(&dev->timer, jiffies + dev->period);
 }
 
-static void __init polld_init_timer(struct dev_info *dev) {
+static void __init polld_init_timer(struct dev_info *dev) 
+{
     atomic_set(&dev->ready_to_read, 0);
     init_waitqueue_head(&dev->wq_read);
 
-    dev->period = (dev->number + 1) * tick;   /*  FIXME: replace by something more flexible */
+    dev->period = (dev->number + 1) * tick;   /*  device 0,1,2,3 --> 1,2,3,4 ticks */
 
     init_timer(&dev->timer);
 
@@ -129,12 +126,14 @@ static void __init polld_init_timer(struct dev_info *dev) {
     add_timer(&dev->timer);
 }
 
-static void __init polld_init_mem(struct dev_info *dev) {
+static void __init polld_init_mem(struct dev_info *dev) 
+{
     char c = 48 + dev->number;
     memset(dev->buffer, c, BUFSIZE);
 }
 
-static int __init polld_init_device(struct dev_info *dev, int number) {
+static int __init polld_init_device(struct dev_info *dev, int number) 
+{
     dev_t devt;
     int rc;
     char tmp[64];
@@ -170,7 +169,8 @@ fail:
     return rc;
 }
 
-static int __init polld_init(void) {
+static int __init polld_init(void) 
+{
     int rc, i;
 
     rc = alloc_chrdev_region(&polld_dev, 0, numdev, MODNAME);
@@ -209,7 +209,8 @@ fail_class_create:
     return rc;
 }
 
-static void __exit polld_clear_device(struct dev_info *dev) {
+static void __exit polld_clear_device(struct dev_info *dev) 
+{
     /*  remove /dev/<devname> device node and /sys/devices/virtual/<class>/<devname> node */
     device_destroy(polld_class, MKDEV(polld_major, polld_minor + dev->number));
 
@@ -218,7 +219,8 @@ static void __exit polld_clear_device(struct dev_info *dev) {
     kfree(dev->buffer);
 }
 
-static void __exit polld_exit(void) {
+static void __exit polld_exit(void) 
+{
     int i;
 
     for (i = 0; i < numdev; i++) {
@@ -238,4 +240,4 @@ module_init(polld_init);
 module_exit(polld_exit);
 
 MODULE_DESCRIPTION("Multiple pseudo-devices that implement poll() functionality");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");

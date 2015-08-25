@@ -151,4 +151,4 @@ module_exit(ts_exit);
 
 MODULE_AUTHOR("Oleg Rosowiecki");
 MODULE_DESCRIPTION("Show task descriptor and individual VMA info contained within");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
