@@ -16,4 +16,4 @@ all: $(TARGETS)
 
 clean:
 	$(QUIET)rm -f $(TARGETS)
-	$(QUIET)rm -f *.o *.d
+	$(QUIET)rm -f *.o *.d *.tmp

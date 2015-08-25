@@ -11,7 +11,6 @@
 
 static void print_thread_info(struct seq_file *sf, struct thread_info *thread) {
     seq_printf(sf, "CPU: %d\n", thread->cpu);
-    seq_printf(sf, "Preempt count: %d\n", thread->preempt_count);
     seq_printf(sf, "Address limit: %lx\n", thread->addr_limit.seg);
 }
 
@@ -54,9 +53,7 @@ static void print_vma(struct seq_file *sf, struct vm_area_struct *vma) {
     flagstr[3]  = (vma->vm_flags & VM_SHARED) ? 's' : '-'; 
     flagstr[4]  = (vma->vm_flags & VM_IO) ? 'I' : '-';
     flagstr[5]  = (vma->vm_flags & VM_GROWSUP) ? 'u' : (vma->vm_flags & VM_GROWSDOWN) ? 'd' : '-';
-    flagstr[6]  = (vma->vm_flags & VM_EXECUTABLE) ? 'X' : '-';
     flagstr[7]  = (vma->vm_flags & VM_LOCKED) ? 'l' : '-';
-    flagstr[8]  = (vma->vm_flags & VM_RESERVED) ? 'R' : '-';
     flagstr[9]  = (vma->vm_flags & VM_ACCOUNT) ? 'A' : '-';
     flagstr[10] = (vma->vm_flags & VM_HUGETLB) ? 'H' : '-';
     flagstr[11] = (vma->vm_flags & VM_NONLINEAR) ? 'N' : '-';
@@ -68,8 +65,8 @@ static void print_vma(struct seq_file *sf, struct vm_area_struct *vma) {
 }
 
 static void print_vma_hdr(struct seq_file *sf) {
-    seq_printf(sf, "rwx + s (shared)\nS (used for I/O)\nu/d (grows up/down)\nX (executable file mapping)\n");
-    seq_printf(sf, "l (locked)\nI (used for I/O)\nR (reserved = no swapping)\nA (accounted VM object)\n");
+    seq_printf(sf, "rwx + s (shared)\nS (used for I/O)\nu/d (grows up/down)\n");
+    seq_printf(sf, "l (locked)\nI (used for I/O)\nA (accounted VM object)\n");
     seq_printf(sf, "H (huge TLB)\nN (non-linear mapping)\n");
 }
 
