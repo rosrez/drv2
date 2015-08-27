@@ -1,58 +1,55 @@
 irq_spinlock.c
 ==============
 
+Installs a (shared) interrupt handler and records up to ten most recent interrupt timestamps.
 
+The IRQ handler records a timestamp and schedules a bottom half (tasklet).
+The tasklet adds the most recent timestamp to a linked list. 
+10 most recent timestamps can be viewed via /proc/irqslock (uses the seq_file interface).
+
+IRQ/bottom half shared data (timestamp) are managed using with spin_lock_irqsave()
+bottom half/process context shared data (the list) are managed using spin_lock_bh()
 
 TEST RUN
 
-cat /proc/irqslock 
-IRQ count: 9
-Bottom half count: 9
-Time: 1440458035.809364
-Time: 1440458037.526667
-Time: 1440458039.529353
-Time: 1440458041.532065
-Time: 1440458043.535553
-Time: 1440458045.544042
-Time: 1440458047.556184
-Time: 1440458049.568519
-Time: 1440458051.580963
 $ cat /proc/irqslock 
-IRQ count: 9
-Bottom half count: 9
-Time: 1440458035.809364
-Time: 1440458037.526667
-Time: 1440458039.529353
-Time: 1440458041.532065
-Time: 1440458043.535553
-Time: 1440458045.544042
-Time: 1440458047.556184
-Time: 1440458049.568519
-Time: 1440458051.580963
-$ cat /proc/irqslock 
-IRQ count: 10
-Bottom half count: 10
-Time: 1440458035.809364
-Time: 1440458037.526667
-Time: 1440458039.529353
-Time: 1440458041.532065
-Time: 1440458043.535553
-Time: 1440458045.544042
-Time: 1440458047.556184
-Time: 1440458049.568519
-Time: 1440458051.580963
-Time: 1440458053.593505
-$ cat /proc/irqslock 
-IRQ count: 11
-Bottom half count: 11
-Time: 1440458037.526667
-Time: 1440458039.529353
-Time: 1440458041.532065
-Time: 1440458043.535553
-Time: 1440458045.544042
-Time: 1440458047.556184
-Time: 1440458049.568519
-Time: 1440458051.580963
-Time: 1440458053.593505
-Time: 1440458055.605551
+IRQ count: 602
+Bottom half count: 602
+Time: 1440497114.316002
+Time: 1440497114.341000
+Time: 1440497114.366003
+Time: 1440497114.391008
+Time: 1440497114.415999
+Time: 1440497114.441000
+Time: 1440497114.466012
+Time: 1440497114.491009
+Time: 1440497114.515999
+Time: 1440497114.541013
 
+$ cat /proc/irqslock 
+IRQ count: 754
+Bottom half count: 754
+Time: 1440497117.566121
+Time: 1440497117.591131
+Time: 1440497117.616125
+Time: 1440497117.641126
+Time: 1440497117.666131
+Time: 1440497117.691024
+Time: 1440497117.716152
+Time: 1440497117.741132
+Time: 1440497117.766134
+Time: 1440497118.050021
+
+$ cat /proc/irqslock 
+IRQ count: 766
+Bottom half count: 766
+Time: 1440497118.178050
+Time: 1440497118.191992
+Time: 1440497118.195925
+Time: 1440497118.198035
+Time: 1440497118.756369
+Time: 1440497118.760033
+Time: 1440497119.219063
+Time: 1440497119.223012
+Time: 1440497119.247221
+Time: 1440497119.826038
