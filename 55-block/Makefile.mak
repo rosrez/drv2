@@ -1,3 +1,5 @@
+KVER?=3
+
 # out-of-tree pass
 
 ifeq ($(KERNELRELEASE),)
@@ -25,6 +27,10 @@ clean:
 
 else
 
+ifeq ($(KVER),3)
     obj-m := blkstat.o 
+else
+	obj-m := stackbd.o
+endif
 
 endif
