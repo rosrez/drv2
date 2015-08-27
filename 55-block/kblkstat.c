@@ -14,8 +14,8 @@
 
 #include <trace/events/block.h>
 
-#define DEVNAME_0 "blkstat0"
-#define DEVNAME "blkstat"
+#define STACKBD_NAME_0 "blkstat0"
+#define STACKBD_NAME "blkstat"
 #define STACKBD_DO_IT 5
 
 #define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
@@ -263,7 +263,7 @@ static int __init bstat_init(void)
 	blk_queue_logical_block_size(bstat.queue, LOGICAL_BLOCK_SIZE);
 
 	/* Get registered */
-	if ((major_num = register_blkdev(major_num, DEVNAME)) < 0)
+	if ((major_num = register_blkdev(major_num, STACKBD_NAME)) < 0)
     {
 		printk("bstat: unable to get major number\n");
 		goto error_after_alloc_queue;
@@ -276,7 +276,7 @@ static int __init bstat_init(void)
 	bstat.gendisk->first_minor = 0;
 	bstat.gendisk->fops = &bstat_ops;
 	bstat.gendisk->private_data = &bstat;
-	strcpy(bstat.gendisk->disk_name, DEVNAME_0);
+	strcpy(bstat.gendisk->disk_name, STACKBD_NAME_0);
 	bstat.gendisk->queue = bstat.queue;
 	add_disk(bstat.gendisk);
 
@@ -285,7 +285,7 @@ static int __init bstat_init(void)
 	return 0;
 
 error_after_redister_blkdev:
-	unregister_blkdev(major_num, DEVNAME);
+	unregister_blkdev(major_num, STACKBD_NAME);
 error_after_alloc_queue:
     blk_cleanup_queue(bstat.queue);
 
@@ -294,19 +294,19 @@ error_after_alloc_queue:
 
 static void __exit bstat_exit(void)
 {
-    blkdev_put(bstat.tdev, STACKBD_BDEV_MODE);
-    bdput(bstat. tdev);
+    printk("bstat: exit\n");
 
-    if (bstat.gendisk) {
-	    del_gendisk(bstat.gendisk);
-	    put_disk(bstat.gendisk);
+    if (bstat.is_active)
+    {
+        kthread_stop(bstat.thread);
+        blkdev_put(bstat.tdev, STACKBD_BDEV_MODE);
+        bdput(bstat. tdev);
     }
 
-    if (bstat.queue)
-	    blk_cleanup_queue(bstat.queue);
-	
-    unregister_blkdev(major_num, DEVNAME);
-    pr_info("%s: exit complete\n", DEVNAME);
+	del_gendisk(bstat.gendisk);
+	put_disk(bstat.gendisk);
+	unregister_blkdev(major_num, STACKBD_NAME);
+	blk_cleanup_queue(bstat.queue);
 }
 
 module_init(bstat_init);
