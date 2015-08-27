@@ -25,6 +25,6 @@ clean:
 
 else
 
-    obj-m := blkstat.o 
+    obj-m := blkstat.o kblkstat.o 
 
 endif
