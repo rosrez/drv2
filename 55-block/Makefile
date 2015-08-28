@@ -1,3 +1,5 @@
+KVER?=$(shell $(uname -r) | cut -c1)
+
 # out-of-tree pass
 
 ifeq ($(KERNELRELEASE),)
@@ -25,6 +27,10 @@ clean:
 
 else
 
-    obj-m := blkstat.o kblkstat.o 
+ifeq ($(KVER),3)
+    obj-m := blkstat.o kblkstat.o
+else
+	obj-m := stackbd.o
+endif
 
 endif

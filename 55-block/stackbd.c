@@ -14,7 +14,9 @@
 
 #include <trace/events/block.h>
 
-#include "../common/stackbd.h"
+#define STACKBD_NAME "stackbd"
+#define STACKBD_NAME_0 "stackbd0"
+#define STACKBD_DO_IT 1000
 
 #define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 #define DEBUGGG printk("stackbd: %d\n", __LINE__);
