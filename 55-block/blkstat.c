@@ -18,13 +18,11 @@
 #define DEVNAME "blkstat"
 #define STACKBD_DO_IT 5
 
+#define NR_MINORS 16
+
 #define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
-#define DEBUGGG printk("bstat: %d\n", __LINE__);
-/*
- * We can tweak our hardware sector size, but the kernel talks to us
- * in terms of small sectors, always.
- */
-#define KERNEL_SECTOR_SIZE 512
+#define DEBUGGG pr_info("bstat: %d\n", __LINE__);
+#define KERNEL_SECTOR_SIZE 512  /*  */
 
 static int major_num = 0;
 module_param(major_num, int, 0);
@@ -47,7 +45,7 @@ static DECLARE_WAIT_QUEUE_HEAD(req_event);
 
 static void bstat_io_fn(struct bio *bio)
 {
-//    printk("stackdb: Mapping sector: %llu -> %llu, dev: %s -> %s\n",
+//    pr_info("stackdb: Mapping sector: %llu -> %llu, dev: %s -> %s\n",
 //            bio->bi_sector,
 //            lba != EMPTY_REAL_LBA ? lba : bio->bi_sector,
 //            bio->bi_bdev->bd_disk->disk_name,
@@ -97,11 +95,11 @@ static int bstat_threadfn(void *data)
  */
 static void bstat_make_request(struct request_queue *q, struct bio *bio) 
 {
-    printk("bstat: make request %-5s block %-12llu #pages %-4hu total-size "
+    pr_info("bstat: make request %-5s block %-12llu #pages %-4hu total-size "
             "%-10u\n", bio_data_dir(bio) == WRITE ? "write" : "read",
             (unsigned long long) bio->bi_iter.bi_sector, bio->bi_vcnt, bio->bi_iter.bi_size);
 
-//    printk("<%p> Make request %s %s %s\n", bio,
+//    pr_info("<%p> Make request %s %s %s\n", bio,
 //           bio->bi_rw & REQ_SYNC ? "SYNC" : "",
 //           bio->bi_rw & REQ_FLUSH ? "FLUSH" : "",
 //           bio->bi_rw & REQ_NOIDLE ? "NOIDLE" : "");
@@ -109,12 +107,12 @@ static void bstat_make_request(struct request_queue *q, struct bio *bio)
     spin_lock_irq(&bstat.lock);
     if (!bstat.tdev)
     {
-        printk("bstat: Request before tdev is ready, aborting\n");
+        pr_info("bstat: Request before tdev is ready, aborting\n");
         goto abort;
     }
     if (!bstat.is_active)
     {
-        printk("bstat: Device not active yet, aborting\n");
+        pr_info("bstat: Device not active yet, aborting\n");
         goto abort;
     }
     bio_list_add(&bstat.bio_list, bio);
@@ -125,7 +123,7 @@ static void bstat_make_request(struct request_queue *q, struct bio *bio)
 
 abort:
     spin_unlock_irq(&bstat.lock);
-    printk("<%p> Abort request\n\n", bio);
+    pr_info("<%p> Abort request\n\n", bio);
     bio_io_error(bio);
     
     return;
@@ -137,24 +135,24 @@ static struct block_device *bstat_bdev_open(char dev_path[])
     struct block_device *tdev = lookup_bdev(dev_path);
     if (IS_ERR(tdev))
     {
-        printk("bstat: error opening raw device <%lu>\n", PTR_ERR(tdev));
+        pr_info("bstat: error opening raw device <%lu>\n", PTR_ERR(tdev));
         return NULL;
     }
 
     if (!bdget(tdev->bd_dev))
     {
-        printk("bstat: error bdget()\n");
+        pr_info("bstat: error bdget()\n");
         return NULL;
     }
 
     if (blkdev_get(tdev, STACKBD_BDEV_MODE, &bstat))
     {
-        printk("bstat: error blkdev_get()\n");
+        pr_info("bstat: error blkdev_get()\n");
         bdput(tdev);
         return NULL;
     }
 
-    printk("Opened %s\n", dev_path);
+    pr_info("Opened %s\n", dev_path);
 
     return tdev;
 }
@@ -168,24 +166,24 @@ static int bstat_start(char dev_path[])
 
     /* Set up our internal device */
     bstat.capacity = get_capacity(bstat.tdev->bd_disk);
-    printk("bstat: Device real capacity: %llu\n", (unsigned long long) bstat.capacity);
+    pr_info("bstat: Device real capacity: %llu\n", (unsigned long long) bstat.capacity);
 
     set_capacity(bstat.gendisk, bstat.capacity);
 
     max_sectors = queue_max_hw_sectors(bdev_get_queue(bstat.tdev));
     blk_queue_max_hw_sectors(bstat.queue, max_sectors);
-    printk("bstat: Max sectors: %u\n", max_sectors);
+    pr_info("bstat: Max sectors: %u\n", max_sectors);
 
     bstat.thread = kthread_create(bstat_threadfn, NULL,
            bstat.gendisk->disk_name);
     if (IS_ERR(bstat.thread))
     {
-        printk("bstat: error kthread_create <%lu>\n",
+        pr_info("bstat: error kthread_create <%lu>\n",
                PTR_ERR(bstat.thread));
         goto error_after_bdev;
     }
 
-    printk("bstat: done initializing successfully\n");
+    pr_info("bstat: done initializing successfully\n");
     bstat.is_active = 1;
     wake_up_process(bstat.thread);
 
@@ -207,7 +205,7 @@ static int bstat_ioctl(struct block_device *bdev, fmode_t mode,
     switch (cmd)
     {
     case STACKBD_DO_IT:
-        printk("\n*** DO IT!!!!!!! ***\n\n");
+        pr_info("\n*** DO IT!!!!!!! ***\n\n");
 
         if (copy_from_user(dev_path, argp, sizeof(dev_path)))
             return -EFAULT;
@@ -219,9 +217,9 @@ static int bstat_ioctl(struct block_device *bdev, fmode_t mode,
 }
 
 /*
- * The HDIO_GETGEO ioctl is handled in blkdev_ioctl(), which
- * calls this. We need to implement getgeo, since we can't
- * use tools such as fdisk to partition the drive otherwise.
+ * Apart from capacity, this is rather bogus geometry info since 
+ * we are not a physical device. But we need to report that to
+ * userspace to enable fdisk work with the device. 
  */
 int bstat_getgeo(struct block_device * block_device, struct hd_geometry * geo)
 {
@@ -247,40 +245,46 @@ static struct block_device_operations bstat_ops = {
 
 static int __init bstat_init(void)
 {
-	/* Set up our internal device */
 	spin_lock_init(&bstat.lock);
 
-	/* blk_alloc_queue() instead of blk_init_queue() so it won't set up the
-     * queue for requests.
+	/* 
+     * Use blk_alloc_queue() to set up the 'bio-oriented' processing,
+     * i.e. it is enough to register the make_request() callback
+     * that deals with individual bios.
+     * Otherwise, we would have to use the 'request-oriented' processing,
+     * and register the callback function that deals with individual
+     * requests.
      */
     if (!(bstat.queue = blk_alloc_queue(GFP_KERNEL)))
     {
-        printk("bstat: alloc_queue failed\n");
+        pr_info("bstat: alloc_queue failed\n");
         return -EFAULT;
     }
 
+    /* register our make_request() callback */
     blk_queue_make_request(bstat.queue, bstat_make_request);
+    /* report our block size */
 	blk_queue_logical_block_size(bstat.queue, LOGICAL_BLOCK_SIZE);
 
-	/* Get registered */
+	/* Register the driver for our logical device */
 	if ((major_num = register_blkdev(major_num, DEVNAME)) < 0)
     {
-		printk("bstat: unable to get major number\n");
+		pr_info("bstat: unable to get major number\n");
 		goto error_after_alloc_queue;
 	}
 
-	/* Gendisk structure */
-	if (!(bstat.gendisk = alloc_disk(16)))
+	/* Populate the gendisk structure */
+	if (!(bstat.gendisk = alloc_disk(NR_MINORS)))
 		goto error_after_redister_blkdev;
 	bstat.gendisk->major = major_num;
 	bstat.gendisk->first_minor = 0;
 	bstat.gendisk->fops = &bstat_ops;
 	bstat.gendisk->private_data = &bstat;
-	strcpy(bstat.gendisk->disk_name, DEVNAME_0);
+	snprintf(bstat.gendisk->disk_name, 32, DEVNAME, 0);    /* TODO: snprintf() */
 	bstat.gendisk->queue = bstat.queue;
 	add_disk(bstat.gendisk);
 
-    printk("bstat: init done\n");
+    pr_info("bstat: init done\n");
 
 	return 0;
 
@@ -295,7 +299,7 @@ error_after_alloc_queue:
 static void __exit bstat_exit(void)
 {
     blkdev_put(bstat.tdev, STACKBD_BDEV_MODE);
-    bdput(bstat. tdev);
+    bdput(bstat.tdev);
 
     if (bstat.gendisk) {
 	    del_gendisk(bstat.gendisk);
