@@ -1,4 +1,4 @@
-KVER?=$(shell $(uname -r) | cut -c1)
+KMAJOR?=$(shell uname -r | cut -c1)
 
 # out-of-tree pass
 
@@ -27,7 +27,7 @@ clean:
 
 else
 
-ifeq ($(KVER),3)
+ifeq ($(KMAJOR),3)
     obj-m := blkstat.o kblkstat.o
 else
 	obj-m := stackbd.o
