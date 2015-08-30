@@ -301,7 +301,6 @@ static void __exit stackbd_exit(void)
 
     if (stackbd.is_active)
     {
-        kthread_stop(stackbd.thread);
         blkdev_put(stackbd.bdev_raw, STACKBD_BDEV_MODE);
         bdput(stackbd. bdev_raw);
     }
