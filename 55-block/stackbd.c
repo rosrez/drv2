@@ -58,97 +58,24 @@ static DECLARE_WAIT_QUEUE_HEAD(req_event);
 
 static void stackbd_endio(struct bio *cloned_bio, int error)
 {
-//FIXME:    struct bio *bio = cloned_bio->bi_private;
-//FIXME:  int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
+    struct bio *bio = cloned_bio->bi_private;
+
+    //FIXME:  int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
 
     pr_info("%s: endio -- size: %u\n", DEVNAME, cloned_bio->bi_size);
+
+    bio_endio(bio, error);
 
 /*
     pr_info("%s: endio -- size: %u -- up-to-date: %d-- error: %d -- in_inter: %lu\n", 
         DEVNAME, cloned_bio->bi_size, uptodate, error, in_interrupt());
 */
-    bio_put(cloned_bio);
+    //bio_put(cloned_bio);
 
 #if 0
-    bio_endio(bio, error);
-
    pr_info("%s: endio -- size: %u -- up-to-date: %d-- error: %d -- in_inter: %lu -- comm: %s\n", 
         DEVNAME, bio->bi_size, uptodate, error, in_interrupt(), current->comm);
 #endif
-}
-
-static void stackbd_io_clone(struct bio *bio)
-{
-    struct bio *cloned_bio = bio_clone(bio, GFP_NOIO); 
-
-//    printk("stackdb: Mapping sector: %llu -> %llu, dev: %s -> %s\n",
-//            bio->bi_sector,
-//            lba != EMPTY_REAL_LBA ? lba : bio->bi_sector,
-//            bio->bi_bdev->bd_disk->disk_name,
-//            bdev_raw->bd_disk->disk_name);
-//
-//    if (lba != EMPTY_REAL_LBA)
-//        bio->bi_sector = lba;
-#if 0
-    trace_block_bio_remap(bdev_get_queue(stackbd.bdev_raw), bio,
-            bio->bi_bdev->bd_dev, bio->bi_sector);
-#endif
-
-    cloned_bio->bi_bdev = stackbd.bdev_raw;
-    cloned_bio->bi_end_io = stackbd_endio;
-    cloned_bio->bi_private = bio;
-
-    /* No need to call bio_endio() */
-    generic_make_request(cloned_bio);
-}
-
-static void stackbd_io_fn(struct bio *bio)
-{
-//    printk("stackdb: Mapping sector: %llu -> %llu, dev: %s -> %s\n",
-//            bio->bi_sector,
-//            lba != EMPTY_REAL_LBA ? lba : bio->bi_sector,
-//            bio->bi_bdev->bd_disk->disk_name,
-//            bdev_raw->bd_disk->disk_name);
-//
-//    if (lba != EMPTY_REAL_LBA)
-//        bio->bi_sector = lba;
-
-    bio->bi_bdev = stackbd.bdev_raw;
-
-    trace_block_bio_remap(bdev_get_queue(stackbd.bdev_raw), bio,
-            bio->bi_bdev->bd_dev, bio->bi_sector);
-
-    /* No need to call bio_endio() */
-    generic_make_request(bio);
-}
-
-
-static int stackbd_threadfn(void *data)
-{
-    struct bio *bio;
-
-    set_user_nice(current, -20);
-
-    while (!kthread_should_stop())
-    {
-        /* wake_up() is after adding bio to list. No need for condition */ 
-        wait_event_interruptible(req_event, kthread_should_stop() ||
-                !bio_list_empty(&stackbd.bio_list));
-
-        spin_lock_irq(&stackbd.lock);
-        if (bio_list_empty(&stackbd.bio_list))
-        {
-            spin_unlock_irq(&stackbd.lock);
-            continue;
-        }
-
-        bio = bio_list_pop(&stackbd.bio_list);
-        spin_unlock_irq(&stackbd.lock);
-
-        stackbd_io_clone(bio);
-    }
-
-    return 0;
 }
 
 /*
@@ -158,6 +85,9 @@ static int stackbd_threadfn(void *data)
 /* static void stackbd_make_request(struct request_queue *q, struct bio *bio) */
 static int stackbd_make_request(struct request_queue *q, struct bio *bio)
 {
+    unsigned long flags;
+    struct bio *cloned_bio;
+
     printk("stackbd: make request %-5s block %-12llu #pages %-4hu total-size "
             "%-10u\n", bio_data_dir(bio) == WRITE ? "write" : "read",
             (unsigned long long) bio->bi_sector, bio->bi_vcnt, bio->bi_size);
@@ -168,7 +98,7 @@ static int stackbd_make_request(struct request_queue *q, struct bio *bio)
 //           bio->bi_rw & REQ_FLUSH ? "FLUSH" : "",
 //           bio->bi_rw & REQ_NOIDLE ? "NOIDLE" : "");
 //
-    spin_lock_irq(&stackbd.lock);
+    spin_lock_irqsave(&stackbd.lock, flags);
     if (!stackbd.bdev_raw)
     {
         printk("stackbd: Request before bdev_raw is ready, aborting\n");
@@ -179,10 +109,23 @@ static int stackbd_make_request(struct request_queue *q, struct bio *bio)
         printk("stackbd: Device not active yet, aborting\n");
         goto abort;
     }
-    bio_list_add(&stackbd.bio_list, bio);
-    wake_up(&req_event);
-    spin_unlock_irq(&stackbd.lock);
+    
+    spin_unlock_irqrestore(&stackbd.lock, flags);
+    
+    cloned_bio = bio_clone(bio, GFP_NOIO);
+    cloned_bio->bi_bdev = stackbd.bdev_raw;
+    cloned_bio->bi_end_io = stackbd_endio;
+    cloned_bio->bi_private = bio;
 
+#if 0
+    cloned_bio = bio;
+    cloned_bio->bi_bdev = stackbd.bdev_raw;
+    cloned_bio->bi_private = cloned_bio->bi_end_io;
+    cloned_bio->bi_end_io = stackbd_endio;
+    generic_make_request(cloned_bio);
+#endif
+
+    generic_make_request(cloned_bio);
     /* FIXME:VER return; */
     return 0;
 
@@ -249,26 +192,10 @@ static int stackbd_start(char *dev_path)
     blk_queue_max_hw_sectors(stackbd.queue, max_sectors);
     printk("stackbd: Max sectors: %u\n", max_sectors);
 
-    stackbd.thread = kthread_create(stackbd_threadfn, NULL,
-           stackbd.gd->disk_name);
-    if (IS_ERR(stackbd.thread))
-    {
-        printk("stackbd: error kthread_create <%lu>\n",
-               PTR_ERR(stackbd.thread));
-        goto error_after_bdev;
-    }
-
     printk("stackbd: done initializing successfully\n");
     stackbd.is_active = 1;
-    wake_up_process(stackbd.thread);
 
     return 0;
-
-error_after_bdev:
-    blkdev_put(stackbd.bdev_raw, STACKBD_BDEV_MODE);
-    bdput(stackbd.bdev_raw);
-
-    return -EFAULT;
 }
 
 static int stackbd_ioctl(struct block_device *bdev, fmode_t mode,
