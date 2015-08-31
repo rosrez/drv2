@@ -21,8 +21,8 @@ static int ififo_alloc(struct ififo **fifo, unsigned int size, gfp_t gfp_mask)
 {
     struct ififo *self;
 
-    self = kmalloc(sizeof(struct ififo) + (size + 1) * sizeof(int), gfp_mask);
-    if (!self->buffer)
+    self = kzalloc(sizeof(struct ififo) + (size + 1) * sizeof(int), gfp_mask);
+    if (!self)
         return -ENOMEM;
 
     self->size = size + 1;
@@ -55,11 +55,7 @@ static int ififo_is_empty(struct ififo *fifo)
 
 static int ififo_is_full(struct ififo *fifo)
 {
-    int x = 0;
-    if (fifo->in < fifo->out) 
-        x = fifo->size;
-
-    return x + fifo->out - fifo->in == 1;
+    return ififo_len(fifo) == fifo->size - 1;
 }
 
 static int ififo_put(struct ififo *fifo, int value)
@@ -91,8 +87,7 @@ static int ififo_get_at(struct ififo *fifo, int *value, int pos)
 
     tgt = (fifo->out + pos) % fifo->size;
 
-    *value = fifo->buffer[fifo->out];
-    fifo->out = (fifo->out + 1) % fifo->size;
+    *value = fifo->buffer[tgt];
     return 1;
 } 
 
@@ -123,11 +118,15 @@ static void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
 
 static void print_fifo(struct ififo *fifo)
 {
-    int i = 0;
+    int i = 1;
     int val;
 
     while (ififo_get_at(fifo, &val, i)) {
         printk("item[%d] = %d\n", i++, val);
+        if (i > size) {
+            printk("breaking get_at() loop\n");
+            break;
+        }
     }
 }
 
@@ -140,19 +139,25 @@ static int __init fifo_init(void)
         return ret;
 
     printk("%s: populating fifo\n", MODNAME);
-    for (i = 0; ififo_put(fifo, i + 1); i++);
+    for (i = 0; ififo_put(fifo, i + 1); i++) {
+    }
 
     printk("%s: iterating over fifo\n", MODNAME);
     print_fifo(fifo);
 
 #if 0
-    /* dequeue one item -- and discard it */
-    if (!ififo_get(&fifo, &val))
-        /* use the result and silence the compiler */;
 #endif
 
-    /* enqueue one more item */
-    ififo_put(fifo, size + 1);
+    /* try to enqueue one more item */
+    if (!ififo_put(fifo, size + 1)) 
+        printk("unsuccessful attempt to insert to full fifo\n");
+
+    /* dequeue one item -- and discard it */
+    ififo_get(fifo, &val);
+
+    /* try to enqueue one more item */
+    if (ififo_put(fifo, size + 1)) 
+        printk("successful attempt to insert to fifo after dequeueing\n");
 
 #if 0
     printk("%s: iterating over updated fifo\n", MODNAME);
