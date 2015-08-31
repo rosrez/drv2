@@ -1,75 +1,121 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
-#include <linux/kfifo.h>
+#include <linux/slab.h>
 
 static int size = 10;
 module_param(size, int, 0);
 
 #define MODNAME "fifo"
 
-struct kfifo fifo;
-
-#if 0
-
 struct ififo {
     unsigned int in;
     unsigned int out;
     unsigned int size;
-    void *buffer;
-}
+    int *buffer;
+};
 
-static int *ififo_alloc(struct ififo **fifo, unsigned int size, gfp_t gfp_mask)
+struct ififo *fifo;
+
+static int ififo_alloc(struct ififo **fifo, unsigned int size, gfp_t gfp_mask)
 {
-    struct ififo *res;
+    struct ififo *self;
 
-    res->buffer = kmalloc(size * sizeof(int), gfp_mask);
-    if (!res->buffer)
-        -ENOMEM;
+    self = kmalloc(sizeof(struct ififo) + (size + 1) * sizeof(int), gfp_mask);
+    if (!self->buffer)
+        return -ENOMEM;
 
-    res->size = size;
-    res->in = fifo.out;
-    return *res;
+    self->size = size + 1;
+    self->in = self->out = 0;
+
+    /* the data buffer is located just after the newly allocated struct ififo */
+    self->buffer = (int *) (self + 1);
+    *fifo = self;
+    return 0;
 }
 
-static void *ififo_free(struct ififo *fifo)
+static void ififo_free(struct ififo *fifo)
 {
     kfree(fifo);    
 }
 
-static int *ififo_len(struct ififo *fifo)
+static int ififo_len(struct ififo *fifo)
 {
-    unsigned int len = (fifo->fifo->in - fifo->out);
+    int x = 0;
+    if (fifo->in < fifo->out)
+        x = fifo->size;
+
+    return (x + fifo->in - fifo->out);
 }
 
-static int ififo_is_full(istruct ififo *fifo)
+static int ififo_is_empty(struct ififo *fifo)
 {
-    return fifo->out - fifo->in == 1;
+    return fifo->out == fifo->in;
+}
+
+static int ififo_is_full(struct ififo *fifo)
+{
+    int x = 0;
+    if (fifo->in < fifo->out) 
+        x = fifo->size;
+
+    return x + fifo->out - fifo->in == 1;
 }
 
 static int ififo_put(struct ififo *fifo, int value)
 {
     if (ififo_is_full(fifo))
-        return -1;
+        return 0;
 
-    fifo->buffer[sizeof()fifo->in++];
+    fifo->buffer[fifo->in] = value;
+    fifo->in = (fifo->in + 1)  % fifo->size;
+    return 1;
 }
-#endif
 
-static void print_fifo(struct kfifo *fifo)
+static int ififo_get(struct ififo *fifo, int *value)
+{
+    if (ififo_is_empty(fifo))
+        return 0;
+
+    *value = fifo->buffer[fifo->out];
+    fifo->out = (fifo->out + 1) % fifo->size;
+    return 1;
+} 
+
+static void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
+{
+    unsigned int in, len, flen;
+
+    if (ififo_is_empty(fifo))
+        return;
+
+    flen = ififo_len(fifo);
+    if (idx + count > flen)
+        count = ififo_len(fifo) - idx;
+
+    in = (fifo->in + idx) % fifo->size;
+
+    if (in > fifo->out) {
+        len = sizeof(int) * (in - flen);
+        memcpy(buf, &fifo->buffer[in], len);
+    } else {
+        len = sizeof(int) * (fifo->size - fifo->out);
+        memcpy(buf, &fifo->buffer[in], len);
+        in = 0;
+        len = sizeof(int) * fifo->in;
+        memcpy(buf, &fifo->buffer[in], len);
+    }
+}
+
+static void print_fifo(struct ififo *fifo)
 {
     int i = 1;
     int vals[10];
-    int l = kfifo_len(fifo);
+    int l = ififo_len(fifo);
 
     if (l < ARRAY_SIZE(vals))
         l = ARRAY_SIZE(vals);
     printk("Copying %d elements\n", l);
-
-  
-    /* take a snapshot of the entire queue */ 
-    while (kfifo_out_peek(fifo, &vals[i], sizeof(vals[0])) != 0)
-        {};
 
     while (l--) {
         printk("item[%d]: %d\n", i, vals[i]);
@@ -81,26 +127,37 @@ static int __init fifo_init(void)
 {
     int i, val, ret;
 
-    ret = kfifo_alloc(&fifo, size * sizeof(int), GFP_KERNEL);
+    ret = ififo_alloc(&fifo, size, GFP_KERNEL);
     if (ret)
-        return -ENOMEM;
+        return ret;
 
+#if 0
     printk("%s: populating fifo\n", MODNAME);
     for (i = 0; i < size; i++) 
-        kfifo_put(&fifo, i + 1);
+        ififo_put(&fifo, i + 1);
 
     printk("%s: iterating over fifo\n", MODNAME);
     print_fifo(&fifo);
 
     /* dequeue one item -- and discard it */
-    if (!kfifo_get(&fifo, &val))
+    if (!ififo_get(&fifo, &val))
         /* use the result and silence the compiler */;
+#endif
 
     /* enqueue one more item */
-    kfifo_put(&fifo, size + 1);
+    ififo_put(fifo, size + 1);
 
+#if 0
     printk("%s: iterating over updated fifo\n", MODNAME);
     print_fifo(&fifo);   
+#endif
+
+    printk("printing -- draining the queue\n");
+    i = 1;
+    while (ififo_get(fifo, &val)) {
+        printk("item[%d] = %d\n", i++, val);
+    }
+    printk("queue size now is %d\n", ififo_len(fifo));
  
     printk("%s: init complete\n", MODNAME);
     return 0;
@@ -108,9 +165,8 @@ static int __init fifo_init(void)
 
 static void __exit fifo_exit(void)
 { 
-    // printk("draining the queue\n");
-
-    kfifo_free(&fifo);
+    
+    ififo_free(fifo);
     printk("%s: exit complete\n", MODNAME);
 }
 
@@ -118,5 +174,5 @@ module_init(fifo_init);
 module_exit(fifo_exit);
 
 MODULE_AUTHOR("Oleg Rosowiecki");
-MODULE_DESCRIPTION("kfifo demo");
+MODULE_DESCRIPTION("ififo demo");
 MODULE_LICENSE("GPL");
