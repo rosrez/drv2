@@ -82,9 +82,23 @@ static int ififo_get(struct ififo *fifo, int *value)
     return 1;
 } 
 
+static int ififo_get_at(struct ififo *fifo, int *value, int pos)
+{
+    int tgt;
+
+    if (pos >= ififo_len(fifo))
+        return 0;
+
+    tgt = (fifo->out + pos) % fifo->size;
+
+    *value = fifo->buffer[fifo->out];
+    fifo->out = (fifo->out + 1) % fifo->size;
+    return 1;
+} 
+
 static void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
 {
-    unsigned int in, len, flen;
+    unsigned int tgt, len, flen;
 
     if (ififo_is_empty(fifo))
         return;
@@ -93,33 +107,27 @@ static void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
     if (idx + count > flen)
         count = ififo_len(fifo) - idx;
 
-    in = (fifo->in + idx) % fifo->size;
+    tgt = (fifo->out + idx) % fifo->size;
 
-    if (in > fifo->out) {
-        len = sizeof(int) * (in - flen);
-        memcpy(buf, &fifo->buffer[in], len);
+    if (tgt > fifo->out) {
+        len = sizeof(int) * (tgt - flen);
+        memcpy(buf, &fifo->buffer[tgt], len);
     } else {
         len = sizeof(int) * (fifo->size - fifo->out);
-        memcpy(buf, &fifo->buffer[in], len);
-        in = 0;
+        memcpy(buf, &fifo->buffer[tgt], len);
+        tgt = 0;
         len = sizeof(int) * fifo->in;
-        memcpy(buf, &fifo->buffer[in], len);
+        memcpy(buf, &fifo->buffer[tgt], len);
     }
 }
 
 static void print_fifo(struct ififo *fifo)
 {
-    int i = 1;
-    int vals[10];
-    int l = ififo_len(fifo);
+    int i = 0;
+    int val;
 
-    if (l < ARRAY_SIZE(vals))
-        l = ARRAY_SIZE(vals);
-    printk("Copying %d elements\n", l);
-
-    while (l--) {
-        printk("item[%d]: %d\n", i, vals[i]);
-        i++;
+    while (ififo_get_at(fifo, &val, i)) {
+        printk("item[%d] = %d\n", i++, val);
     }
 }
 
@@ -131,14 +139,13 @@ static int __init fifo_init(void)
     if (ret)
         return ret;
 
-#if 0
     printk("%s: populating fifo\n", MODNAME);
-    for (i = 0; i < size; i++) 
-        ififo_put(&fifo, i + 1);
+    for (i = 0; ififo_put(fifo, i + 1); i++);
 
     printk("%s: iterating over fifo\n", MODNAME);
-    print_fifo(&fifo);
+    print_fifo(fifo);
 
+#if 0
     /* dequeue one item -- and discard it */
     if (!ififo_get(&fifo, &val))
         /* use the result and silence the compiler */;
