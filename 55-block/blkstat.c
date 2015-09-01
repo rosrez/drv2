@@ -288,13 +288,19 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
 {
     unsigned long flags;
 
-    /* grab the info spinlock and take a snapshot of current statistics */
-    spin_lock_irqsave(&blkstat.infolock, flags);
-    memcpy(&userinfo, &blkstat.info, sizeof(userinfo));
-    userinfo.qdepth = atomic_read(&blkstat.qdepth);
-    userinfo.rtcnt = 0;     // FIXME: fifo = ififo_len();
-    spin_unlock_irqrestore(&blkstat.infolock, flags);
-    /* info spinlock -- end of critical section */
+    if (*pos == 0) {
+        /* grab the info spinlock and take a snapshot of current statistics */
+        spin_lock_irqsave(&blkstat.infolock, flags);
+        memcpy(&userinfo, &blkstat.info, sizeof(userinfo));
+        userinfo.qdepth = atomic_read(&blkstat.qdepth);
+        userinfo.rtcnt = 0;     // FIXME: fifo = ififo_len();
+        spin_unlock_irqrestore(&blkstat.infolock, flags);
+        /* info spinlock -- end of critical section */
+        return SEQ_START_TOKEN;
+    }
+
+    if (* pos >= ARRAY_SIZE(pnam))
+        return NULL;
 
     return (void *) (long) (*pos + 1);
 }
@@ -303,7 +309,7 @@ static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
 {
     (*pos)++;
     if (*pos < ARRAY_SIZE(pnam))
-        return (void *) (long) (pos + 1);
+        return (void *) (long) (pos);
     else
         return NULL;
 }
@@ -317,10 +323,7 @@ static void blkstat_seq_stop(struct seq_file *sf, void *v)
 static int blkstat_seq_show(struct seq_file *sf, void *v)
 {
     struct binfo *info = &userinfo.info;
-    long pos = *(long *) v - 2;
-
-    if (pos >= ARRAY_SIZE(pnam))
-        return 0;
+    long pos = (long) v - 2;
 
     /* the first item => header */
     if (pos == -1) {
