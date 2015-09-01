@@ -291,7 +291,7 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
     if (*pos == 0) {
         /* grab the info spinlock and take a snapshot of current statistics */
         spin_lock_irqsave(&blkstat.infolock, flags);
-        memcpy(&userinfo, &blkstat.info, sizeof(userinfo));
+        memcpy(&userinfo.info, &blkstat.info, sizeof(userinfo));
         userinfo.qdepth = atomic_read(&blkstat.qdepth);
         userinfo.rtcnt = 0;     // FIXME: fifo = ififo_len();
         spin_unlock_irqrestore(&blkstat.infolock, flags);
@@ -331,12 +331,12 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
         if (info->ios[0] + info->ios[1])
             meanrt = (info->duration[0] + info->duration[1]) / (info->ios[0] + info->ios[1]);
         seq_printf(sf, "Target device: %s\n", targetname);
-        seq_printf(sf, "Read I/Os: %lu");
+        seq_printf(sf, "Read I/Os: %lu", info->ios[0]);
         if (info->ios[0]) 
-            seq_printf(" -- I/Os per sec: %lu", info->ios[0], info->duration[0]/info->ios[0]);
+            seq_printf(sf, " -- I/Os per sec: %lu", info->duration[0]/info->ios[0]);
         seq_printf(sf, "Write I/Os: %lu", info->ios[1]);
         if (info->ios[1])
-            seq_printf(" -- I/Os per sec: %lu", info->ios[1], info->duration[1]/info->ios[1]);
+            seq_printf(sf, " -- I/Os per sec: %lu", info->duration[1]/info->ios[1]);
         seq_printf(sf, "Queue depth: %d\n", userinfo.qdepth);
         seq_printf(sf, "I/O service time (ns)\n");
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
