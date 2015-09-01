@@ -14,12 +14,13 @@
 
 #include <trace/events/block.h>
 
-#define DEVNAME "stackbd"
-#define DEVNAME_0 "stackbd0"
-#define STACKBD_DO_IT 1000
+#define DEVNAME "blkstat"
+#define DEVNAME_0 "blkstat0"
 
-#define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
-#define DEBUGGG printk("stackbd: %d\n", __LINE__);
+#define NR_MINORS 1
+
+#define blkstat_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
+#define DEBUGGG printk("blkstat: %d\n", __LINE__);
 /*
  * We can tweak our hardware sector size, but the kernel talks to us
  * in terms of small sectors, always.
@@ -37,40 +38,59 @@ module_param(LOGICAL_BLOCK_SIZE, int, 0);
 char targetname[256];
 module_param_string(target, targetname, sizeof(targetname), 0);
 
+/* placeholder for extra data assigned to bi_private of cloned bios */
+struct biostat {
+    struct bio *bio;        /* original bio */
+    unsigned long time;     /* timestamp of submission of cloned bio */
+};
+
 /*
  * The internal representation of our device.
  */
-static struct stackbd_t {
+static struct blkstat_t {
     sector_t capacity; /* Sectors */
-    struct gendisk *gd;
+    struct gendisk *gendisk;
     spinlock_t lock;
     struct bio_list bio_list;    
     struct task_struct *thread;
     int is_active;
-    struct block_device *bdev_raw;
+    struct block_device *tdev;
     /* Our request queue */
     struct request_queue *queue;
-} stackbd;
+} blkstat;
 
-static DECLARE_WAIT_QUEUE_HEAD(req_event);
-
-#define trace_block_bio_remap trace_block_remap
-
-static void stackbd_endio(struct bio *cloned_bio, int error)
+static struct biostat *alloc_biostat(struct bio *bio)
 {
-    struct bio *bio = cloned_bio->bi_private;
+    struct biostat *bs = kmalloc(sizeof(*bs), GFP_NOIO);
+    if (!bs)
+        return NULL;
 
-    //FIXME:  int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
+    bs->bio = bio;
+    bs->time = ktime_to_ns(ktime_get()); /* get the current timestamp */
+    return bs;
+}
 
-    pr_info("%s: endio -- size: %u\n", DEVNAME, cloned_bio->bi_size);
+static void free_biostat(struct biostat *bs)
+{
+    kfree(bs);
+}
+
+static void blkstat_endio(struct bio *cloned_bio, int error)
+{
+    struct biostat *bs = cloned_bio->bi_private;
+    struct bio *bio = bs->bio;
+    
+    int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
+
+    unsigned long now = ktime_to_ns(ktime_get());
+    unsigned long nselapsed = now - bs->time;
+
+    pr_info("%s: endio -- elapsed: %lu -- size: %u -- up-to-date: %d-- error: %d -- IRQ: %lu -- INTR: %lu\n", 
+        DEVNAME, nselapsed, cloned_bio->bi_size, uptodate, error, in_irq(), in_interrupt());
 
     bio_endio(bio, error);
-
-/*
-    pr_info("%s: endio -- size: %u -- up-to-date: %d-- error: %d -- in_inter: %lu\n", 
-        DEVNAME, cloned_bio->bi_size, uptodate, error, in_interrupt());
-*/
-    //bio_put(cloned_bio);
+    // bio_put(cloned_bio);
+    free_biostat(bs);
 
 #if 0
    pr_info("%s: endio -- size: %u -- up-to-date: %d-- error: %d -- in_inter: %lu -- comm: %s\n", 
@@ -78,144 +98,110 @@ static void stackbd_endio(struct bio *cloned_bio, int error)
 #endif
 }
 
-/*
- * Handle an I/O request.
- */
 /* FIXME:VER */
-/* static void stackbd_make_request(struct request_queue *q, struct bio *bio) */
-static int stackbd_make_request(struct request_queue *q, struct bio *bio)
+/* static void blkstat_make_request(struct request_queue *q, struct bio *bio) */
+static int blkstat_make_request(struct request_queue *q, struct bio *bio)
 {
-    unsigned long flags;
     struct bio *cloned_bio;
 
-    printk("stackbd: make request %-5s block %-12llu #pages %-4hu total-size "
+    printk("blkstat: make request %-5s block %-12llu #pages %-4hu total-size "
             "%-10u\n", bio_data_dir(bio) == WRITE ? "write" : "read",
             (unsigned long long) bio->bi_sector, bio->bi_vcnt, bio->bi_size);
-    printk("%s: bi_end_io = %p", DEVNAME, bio->bi_end_io);
 
-//    printk("<%p> Make request %s %s %s\n", bio,
-//           bio->bi_rw & REQ_SYNC ? "SYNC" : "",
-//           bio->bi_rw & REQ_FLUSH ? "FLUSH" : "",
-//           bio->bi_rw & REQ_NOIDLE ? "NOIDLE" : "");
-//
-    spin_lock_irqsave(&stackbd.lock, flags);
-    if (!stackbd.bdev_raw)
+    if (!blkstat.tdev)
     {
-        printk("stackbd: Request before bdev_raw is ready, aborting\n");
-        goto abort;
+        printk("blkstat: Request before tdev is ready, aborting\n");
+        goto err_bio;
     }
-    if (!stackbd.is_active)
+    if (!blkstat.is_active)
     {
-        printk("stackbd: Device not active yet, aborting\n");
-        goto abort;
+        printk("blkstat: Device not active yet, aborting\n");
+        goto err_bio;
     }
-    
-    spin_unlock_irqrestore(&stackbd.lock, flags);
     
     cloned_bio = bio_clone(bio, GFP_NOIO);
-    cloned_bio->bi_bdev = stackbd.bdev_raw;
-    cloned_bio->bi_end_io = stackbd_endio;
-    cloned_bio->bi_private = bio;
+    if (!cloned_bio)
+        goto err_bio; 
 
-#if 0
-    cloned_bio = bio;
-    cloned_bio->bi_bdev = stackbd.bdev_raw;
-    cloned_bio->bi_private = cloned_bio->bi_end_io;
-    cloned_bio->bi_end_io = stackbd_endio;
-    generic_make_request(cloned_bio);
-#endif
+    /* populate the necessary bio info */
+
+    cloned_bio->bi_private = alloc_biostat(bio);
+    if (!cloned_bio->bi_private)
+        goto err_free_clone;
+
+    cloned_bio->bi_bdev = blkstat.tdev;
+    cloned_bio->bi_end_io = blkstat_endio;
 
     generic_make_request(cloned_bio);
     /* FIXME:VER return; */
     return 0;
 
-abort:
-    spin_unlock_irq(&stackbd.lock);
-    printk("<%p> Abort request\n\n", bio);
+err_free_clone:
+    bio_put(cloned_bio);
+
+err_bio:
     bio_io_error(bio);
-    
-    /*FIXME:VER return; */
     return 0;
 }
 
-static struct block_device *stackbd_bdev_open(char dev_path[])
+static struct block_device *blkstat_bdev_open(char dev_path[])
 {
     /* Open underlying device */
-    struct block_device *bdev_raw = lookup_bdev(dev_path);
+    struct block_device *tdev = lookup_bdev(dev_path);
     printk("Opened %s\n", dev_path);
 
-    if (IS_ERR(bdev_raw))
+    if (IS_ERR(tdev))
     {
-        printk("stackbd: error opening raw device <%lu>\n", PTR_ERR(bdev_raw));
+        printk("blkstat: error opening raw device <%lu>\n", PTR_ERR(tdev));
         return NULL;
     }
 
-    if (!bdget(bdev_raw->bd_dev))
+    if (!bdget(tdev->bd_dev))
     {
-        printk("stackbd: error bdget()\n");
+        printk("blkstat: error bdget()\n");
         return NULL;
     }
 
 
     /* FIXME:VER */
-    /*    if (blkdev_get(bdev_raw, STACKBD_BDEV_MODE, &stackbd))*/
-    if (blkdev_get(bdev_raw, STACKBD_BDEV_MODE))
+    /*    if (blkdev_get(tdev, blkstat_BDEV_MODE, &blkstat))*/
+    if (blkdev_get(tdev, blkstat_BDEV_MODE))
     {
-        printk("stackbd: error blkdev_get()\n");
-        bdput(bdev_raw);
+        printk("blkstat: error blkdev_get()\n");
+        bdput(tdev);
         return NULL;
     }
 
-    if (bd_claim(bdev_raw, &stackbd)) {
-        printk("stackbd: error bd_claim()\n");
-        bdput(bdev_raw);
+    if (bd_claim(tdev, &blkstat)) {
+        printk("blkstat: error bd_claim()\n");
+        bdput(tdev);
         return NULL;
     }
 
-    return bdev_raw;
+    return tdev;
 }
 
-static int stackbd_start(char *dev_path)
+static int blkstat_start(char *dev_path)
 {
     unsigned max_sectors;
 
-    if (!(stackbd.bdev_raw = stackbd_bdev_open(dev_path)))
+    if (!(blkstat.tdev = blkstat_bdev_open(dev_path)))
         return -EFAULT;
 
     /* Set up our internal device */
-    stackbd.capacity = get_capacity(stackbd.bdev_raw->bd_disk);
-    printk("stackbd: Device real capacity: %llu\n", (unsigned long long) stackbd.capacity);
+    blkstat.capacity = get_capacity(blkstat.tdev->bd_disk);
+    printk("blkstat: Device real capacity: %llu\n", (unsigned long long) blkstat.capacity);
 
-    set_capacity(stackbd.gd, stackbd.capacity);
+    set_capacity(blkstat.gendisk, blkstat.capacity);
 
-    max_sectors = queue_max_hw_sectors(bdev_get_queue(stackbd.bdev_raw));
-    blk_queue_max_hw_sectors(stackbd.queue, max_sectors);
-    printk("stackbd: Max sectors: %u\n", max_sectors);
+    max_sectors = queue_max_hw_sectors(bdev_get_queue(blkstat.tdev));
+    blk_queue_max_hw_sectors(blkstat.queue, max_sectors);
+    printk("blkstat: Max sectors: %u\n", max_sectors);
 
-    printk("stackbd: done initializing successfully\n");
-    stackbd.is_active = 1;
+    printk("blkstat: done initializing successfully\n");
+    blkstat.is_active = 1;
 
     return 0;
-}
-
-static int stackbd_ioctl(struct block_device *bdev, fmode_t mode,
-		     unsigned int cmd, unsigned long arg)
-{
-    char dev_path[80];
-	void __user *argp = (void __user *)arg;    
-
-    switch (cmd)
-    {
-    case STACKBD_DO_IT:
-        printk("\n*** DO IT!!!!!!! ***\n\n");
-
-        if (copy_from_user(dev_path, argp, sizeof(dev_path)))
-            return -EFAULT;
-
-        return stackbd_start(dev_path);
-    default:
-        return -ENOTTY;
-    }
 }
 
 /*
@@ -223,12 +209,12 @@ static int stackbd_ioctl(struct block_device *bdev, fmode_t mode,
  * calls this. We need to implement getgeo, since we can't
  * use tools such as fdisk to partition the drive otherwise.
  */
-int stackbd_getgeo(struct block_device * block_device, struct hd_geometry * geo)
+int blkstat_getgeo(struct block_device * block_device, struct hd_geometry * geo)
 {
 	long size;
 
 	/* We have no real geometry, of course, so make something up. */
-	size = stackbd.capacity * (LOGICAL_BLOCK_SIZE / KERNEL_SECTOR_SIZE);
+	size = blkstat.capacity * (LOGICAL_BLOCK_SIZE / KERNEL_SECTOR_SIZE);
 	geo->cylinders = (size & ~0x3f) >> 6;
 	geo->heads = 4;
 	geo->sectors = 16;
@@ -239,77 +225,76 @@ int stackbd_getgeo(struct block_device * block_device, struct hd_geometry * geo)
 /*
  * The device operations structure.
  */
-static struct block_device_operations stackbd_ops = {
+static struct block_device_operations blkstat_ops = {
 		.owner  = THIS_MODULE,
-		.getgeo = stackbd_getgeo,
-        .ioctl  = stackbd_ioctl,
+		.getgeo = blkstat_getgeo,
 };
 
-static int __init stackbd_init(void)
+static int __init blkstat_init(void)
 {
     if (strcmp(targetname,"") == 0)
         return -EINVAL;
 
 	/* Set up our internal device */
-	spin_lock_init(&stackbd.lock);
+	spin_lock_init(&blkstat.lock);
 
 	/* blk_alloc_queue() instead of blk_init_queue() so it won't set up the
      * queue for requests.
      */
-    if (!(stackbd.queue = blk_alloc_queue(GFP_KERNEL)))
+    if (!(blkstat.queue = blk_alloc_queue(GFP_KERNEL)))
     {
-        printk("stackbd: alloc_queue failed\n");
+        printk("blkstat: alloc_queue failed\n");
         return -EFAULT;
     }
 
-    blk_queue_make_request(stackbd.queue, stackbd_make_request);
-	blk_queue_logical_block_size(stackbd.queue, LOGICAL_BLOCK_SIZE);
+    blk_queue_make_request(blkstat.queue, blkstat_make_request);
+	blk_queue_logical_block_size(blkstat.queue, LOGICAL_BLOCK_SIZE);
 
 	/* Get registered */
 	if ((major_num = register_blkdev(major_num, DEVNAME)) < 0)
     {
-		printk("stackbd: unable to get major number\n");
+		printk("blkstat: unable to get major number\n");
 		goto error_after_alloc_queue;
 	}
 
 	/* Gendisk structure */
-	if (!(stackbd.gd = alloc_disk(16)))
+	if (!(blkstat.gendisk = alloc_disk(NR_MINORS)))
 		goto error_after_redister_blkdev;
-	stackbd.gd->major = major_num;
-	stackbd.gd->first_minor = 0;
-	stackbd.gd->fops = &stackbd_ops;
-	stackbd.gd->private_data = &stackbd;
-	strcpy(stackbd.gd->disk_name, DEVNAME_0);
-	stackbd.gd->queue = stackbd.queue;
-	add_disk(stackbd.gd);
+	blkstat.gendisk->major = major_num;
+	blkstat.gendisk->first_minor = 0;
+	blkstat.gendisk->fops = &blkstat_ops;
+	blkstat.gendisk->private_data = &blkstat;
+	strcpy(blkstat.gendisk->disk_name, DEVNAME_0);
+	blkstat.gendisk->queue = blkstat.queue;
+	add_disk(blkstat.gendisk);
 
-    printk("stackbd: init done\n");
+    printk("blkstat: init done\n");
 
-	return stackbd_start(targetname);
+	return blkstat_start(targetname);
 
 error_after_redister_blkdev:
 	unregister_blkdev(major_num, DEVNAME);
 error_after_alloc_queue:
-    blk_cleanup_queue(stackbd.queue);
+    blk_cleanup_queue(blkstat.queue);
 
 	return -EFAULT;
 }
 
-static void __exit stackbd_exit(void)
+static void __exit blkstat_exit(void)
 {
-    printk("stackbd: exit\n");
+    printk("blkstat: exit\n");
 
-    if (stackbd.is_active)
+    if (blkstat.is_active)
     {
-        blkdev_put(stackbd.bdev_raw, STACKBD_BDEV_MODE);
-        bdput(stackbd. bdev_raw);
+        blkdev_put(blkstat.tdev, blkstat_BDEV_MODE);
+        bdput(blkstat. tdev);
     }
 
-	del_gendisk(stackbd.gd);
-	put_disk(stackbd.gd);
+	del_gendisk(blkstat.gendisk);
+	put_disk(blkstat.gendisk);
 	unregister_blkdev(major_num, DEVNAME);
-	blk_cleanup_queue(stackbd.queue);
+	blk_cleanup_queue(blkstat.queue);
 }
 
-module_init(stackbd_init);
-module_exit(stackbd_exit);
+module_init(blkstat_init);
+module_exit(blkstat_exit);

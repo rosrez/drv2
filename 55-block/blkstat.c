@@ -2,16 +2,14 @@
 #include <linux/moduleparam.h>
 #include <linux/init.h>
 
-#include <linux/kernel.h> /* printk() */
-#include <linux/fs.h>     /* everything... */
-#include <linux/errno.h>  /* error codes */
-#include <linux/types.h>  /* size_t */
+#include <linux/kernel.h> 
+#include <linux/fs.h>
+#include <linux/errno.h>
+#include <linux/types.h>
 #include <linux/vmalloc.h>
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
 #include <linux/hdreg.h>
-
-#include <trace/events/block.h>
 
 #define DEVNAME_0 "blkstat0"
 #define DEVNAME "blkstat"
@@ -21,34 +19,61 @@
 #define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 #define KERNEL_SECTOR_SIZE 512  /* FIXME: */
 
-static int major_num = 0;
-module_param(major_num, int, 0);
+static int majornr = 0;
+
 static int LOGICAL_BLOCK_SIZE = 512;
-module_param(LOGICAL_BLOCK_SIZE, int, 0);
+module_param(LOGICAL_BLOCK_SIZE, int, S_IRUGO | S_IWUSR);
+
+/* FIXME: set the default to 100000 */
+static int nrsamples = 100;
+module_param(nrsamples, int, S_IRUGO | S_IWUSR);
 
 char targetname[256];
 module_param_string(target, targetname, sizeof(targetname), 0);
 
 /* placeholder for extra data assigned to bi_private of cloned bios */
 struct biostat {
-    struct bio *bio;
-    unsigned long time;
+    struct bio *bio;        /* original bio */
+    unsigned long time;     /* timestamp of submission of cloned bio */
 };
 
-/* our 'device' structure, contains the gendisk, queue structs as well as target device */
+struct binfo {
+    int ios[2];
+    int totrt[2];
+    /* no explicit mean value - can be derived from the above */
+    int minrt;
+    int maxrt;
+/* FIXME: remove comment */
+#if 0
+    struct ififo *rt;   /* a FIFO with response times (the capacity is nrsamples) */
+#endif
+};
+
+/* our 'device' structure, contains... everyting */
 struct blkstat {
+    /* target device */
     struct block_device *tdev;
+
+    /* the usual boilerplate stuff: gendisk, queue */
     struct gendisk *gendisk;
     struct request_queue *queue;
-    sector_t capacity;     
-    
-    spinlock_t lock;        /* FIXME: mutex na init/open? */
-    int is_active;
+    sector_t capacity;
+
+    /* the statistics structure */
+    struct binfo binfo;
+
+    /* protects the binfo structure */
+    spinlock_t slock;
+
+    /* protects the blkstat structure */
+    mutex_t mlock;
+
+    int is_active;  /* FIXME: remove this */
 }; 
 
 static struct blkstat blkstat;
 
-static struct biostat *alloc_stat(struct bio *bio)
+static struct biostat *alloc_biostat(struct bio *bio)
 {
     struct biostat *bs = kmalloc(sizeof(*bs), GFP_NOIO);
     if (!bs)
@@ -59,7 +84,7 @@ static struct biostat *alloc_stat(struct bio *bio)
     return bs;
 }
 
-static void free_stat(struct biostat *bs)
+static void free_biostat(struct biostat *bs)
 {
     kfree(bs);
 }
@@ -68,15 +93,17 @@ static void blkstat_endio(struct bio *cloned_bio, int error)
 {
     struct biostat *bs = cloned_bio->bi_private;
     struct bio *bio = bs->bio;
-    int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
+   
     unsigned long now = ktime_to_ns(ktime_get());
     unsigned long nselapsed = now - bs->time;
+
+    int uptodate = test_bit(BIO_UPTODATE, &cloned_bio->bi_flags);
 
     pr_info("%s: endio -- elapsed: %lu -- size: %u -- up-to-date: %d-- error: %d -- IRQ: %lu -- INTR: %lu\n", 
         DEVNAME, nselapsed, cloned_bio->bi_iter.bi_size, uptodate, error, in_irq(), in_interrupt());
 
     bio_endio(bio, error);
-    free_stat(bs);    
+    free_biostat(bs);    
 }
 
 static void blkstat_make_request(struct request_queue *q, struct bio *bio) 
@@ -108,7 +135,8 @@ static void blkstat_make_request(struct request_queue *q, struct bio *bio)
         goto err_bio; 
 
     /* populate the necessary bio info */
-    cloned_bio->bi_private = alloc_stat(bio);
+
+    cloned_bio->bi_private = alloc_biostat(bio);
     if (!cloned_bio->bi_private)
         goto err_free_clone;
 
@@ -230,7 +258,7 @@ static int __init blkstat_init(void)
 	blk_queue_logical_block_size(blkstat.queue, LOGICAL_BLOCK_SIZE);
 
 	/* Register the driver for our logical device */
-	if ((major_num = register_blkdev(major_num, DEVNAME)) < 0)
+	if ((majornr = register_blkdev(majornr, DEVNAME)) < 0)
     {
 		pr_info("blkstat: unable to get major number\n");
 		goto error_after_alloc_queue;
@@ -240,7 +268,7 @@ static int __init blkstat_init(void)
 	if (!(blkstat.gendisk = alloc_disk(NR_MINORS)))
 		goto error_after_redister_blkdev;
 
-	blkstat.gendisk->major = major_num;
+	blkstat.gendisk->major = majornr;
 	blkstat.gendisk->first_minor = 0;
 	blkstat.gendisk->fops = &blkstat_ops;
 	blkstat.gendisk->private_data = &blkstat;
@@ -253,7 +281,7 @@ static int __init blkstat_init(void)
 	return blkstat_start(targetname);
 
 error_after_redister_blkdev:
-	unregister_blkdev(major_num, DEVNAME);
+	unregister_blkdev(majornr, DEVNAME);
 
 error_after_alloc_queue:
     blk_cleanup_queue(blkstat.queue);
@@ -275,7 +303,7 @@ static void __exit blkstat_exit(void)
     if (blkstat.queue)
 	    blk_cleanup_queue(blkstat.queue);
 	
-    unregister_blkdev(major_num, DEVNAME);
+    unregister_blkdev(majornr, DEVNAME);
     pr_info("%s: exit complete\n", DEVNAME);
 }
 
