@@ -76,7 +76,7 @@ int ififo_get_at(struct ififo *fifo, int *value, int pos)
     return 1;
 } 
 
-void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
+void ififo_copy(struct ififo *fifo, int *buf, int idx, int count)
 {
     unsigned int tgt, len, flen;
 
@@ -90,13 +90,16 @@ void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
     tgt = (fifo->out + idx) % fifo->size;
 
     if (tgt > fifo->out) {
-        len = sizeof(int) * (tgt - flen);
+        len = tgt - flen;
         memcpy(buf, &fifo->buffer[tgt], len);
     } else {
-        len = sizeof(int) * (fifo->size - fifo->out);
-        memcpy(buf, &fifo->buffer[tgt], len);
+        len = fifo->size - fifo->out;
+        printk("copying from %d: %d items\n", tgt, len);
+        memcpy(buf, &fifo->buffer[tgt], len * sizeof(int));
+        buf += len;
         tgt = 0;
-        len = sizeof(int) * fifo->in;
-        memcpy(buf, &fifo->buffer[tgt], len);
+        len = fifo->in;
+        printk("copying from %d: %d items\n", tgt, len);
+        memcpy(buf, &fifo->buffer[tgt], len * sizeof(int));
     }
 }

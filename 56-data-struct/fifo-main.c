@@ -23,6 +23,19 @@ static void print_fifo(struct ififo *fifo)
     }
 }
 
+static void print_fifo_copy(struct ififo *fifo)
+{
+    static int vals[1000];
+    int i;
+    int l = ififo_len(fifo);
+
+    /* copy the entire fifo to the array */
+    ififo_copy(fifo, &vals[0], 0, l);
+
+    for (i = 0; i < l; i++)
+        printk("item[%d] = %d\n", i + 1, vals[i]);
+}
+
 static void add_one(struct ififo *fifo, int value)
 {
     int dummy;
@@ -58,8 +71,8 @@ static int __init fifo_init(void)
     printk("%s: initial fifo state\n", MODNAME);
     print_fifo(fifo);
 
-#if 0
-#endif
+    printk("%s: COPY -- initial fifo state\n", MODNAME);
+    print_fifo(fifo);
 
     /* try to enqueue one more item */
     if (!ififo_put(fifo, size + 1)) 
@@ -73,6 +86,9 @@ static int __init fifo_init(void)
     add_half(fifo, size + 2);
     printk("%s: added half\n", MODNAME);
     print_fifo(fifo);   
+
+    printk("%s: COPY -- after adding half\n", MODNAME);
+    print_fifo_copy(fifo);   
 
     printk("printing -- draining the queue\n");
     i = 1;

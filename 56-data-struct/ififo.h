@@ -26,6 +26,6 @@ int ififo_get(struct ififo *fifo, int *value);
 
 int ififo_get_at(struct ififo *fifo, int *value, int pos);
 
-void ififo_copy(struct ififo *fifo, void *buf, int idx, int count);
+void ififo_copy(struct ififo *fifo, int *buf, int idx, int count);
 
 #endif /* IFIFO_H */
