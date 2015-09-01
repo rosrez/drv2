@@ -118,16 +118,34 @@ static void ififo_copy(struct ififo *fifo, void *buf, int idx, int count)
 
 static void print_fifo(struct ififo *fifo)
 {
-    int i = 1;
+    int i = 0;
     int val;
 
     while (ififo_get_at(fifo, &val, i)) {
-        printk("item[%d] = %d\n", i++, val);
-        if (i > size) {
-            printk("breaking get_at() loop\n");
-            break;
-        }
+        printk("item[%d] = %d\n", i + 1, val);
+        i++;
     }
+}
+
+static void add_one(struct ififo *fifo, int value)
+{
+    int dummy;
+
+    /* dequeue one item -- and discard it */
+    ififo_get(fifo, &dummy);
+
+    /* throw in another item */
+    if (!ififo_put(fifo, value)) 
+        printk("unsuccessful attempt to insert to fifo after dequeueing\n");
+}
+
+static void add_half(struct ififo *fifo, int value)
+{
+    int i;
+    int l = ififo_len(fifo) / 2;
+    
+    for (i = 0; i < l; i++, value++)
+        add_one(fifo, value);
 }
 
 static int __init fifo_init(void)
@@ -139,10 +157,9 @@ static int __init fifo_init(void)
         return ret;
 
     printk("%s: populating fifo\n", MODNAME);
-    for (i = 0; ififo_put(fifo, i + 1); i++) {
-    }
+    for (i = 0; ififo_put(fifo, i + 1); i++);
 
-    printk("%s: iterating over fifo\n", MODNAME);
+    printk("%s: initial fifo state\n", MODNAME);
     print_fifo(fifo);
 
 #if 0
@@ -152,23 +169,20 @@ static int __init fifo_init(void)
     if (!ififo_put(fifo, size + 1)) 
         printk("unsuccessful attempt to insert to full fifo\n");
 
-    /* dequeue one item -- and discard it */
-    ififo_get(fifo, &val);
+    add_one(fifo, size + 1);
+    printk("%s: added 1 item\n", MODNAME);
+    print_fifo(fifo);
 
-    /* try to enqueue one more item */
-    if (ififo_put(fifo, size + 1)) 
-        printk("successful attempt to insert to fifo after dequeueing\n");
-
-#if 0
-    printk("%s: iterating over updated fifo\n", MODNAME);
-    print_fifo(&fifo);   
-#endif
+    /* add another half items */
+    add_half(fifo, size + 2);
+    printk("%s: added half\n", MODNAME);
+    print_fifo(fifo);   
 
     printk("printing -- draining the queue\n");
     i = 1;
-    while (ififo_get(fifo, &val)) {
+    while (ififo_get(fifo, &val)) 
         printk("item[%d] = %d\n", i++, val);
-    }
+    
     printk("queue size now is %d\n", ififo_len(fifo));
  
     printk("%s: init complete\n", MODNAME);
