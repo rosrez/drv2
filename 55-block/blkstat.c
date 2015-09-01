@@ -309,7 +309,7 @@ static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
 {
     (*pos)++;
     if (*pos < ARRAY_SIZE(pnam))
-        return (void *) (long) (pos);
+        return (void *) (long) (pos + 1);
     else
         return NULL;
 }
@@ -327,11 +327,16 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
 
     /* the first item => header */
     if (pos == -1) {
-        long meanrt = (info->duration[0] + info->duration[1]) / 
-                (info->ios[0] + info->ios[1]);
+        long meanrt = 0;
+        if (info->ios[0] + info->ios[1])
+            meanrt = (info->duration[0] + info->duration[1]) / (info->ios[0] + info->ios[1]);
         seq_printf(sf, "Target device: %s\n", targetname);
-        seq_printf(sf, "Read I/Os: %lu -- I/Os per sec: %lu", info->ios[0], info->duration[0]/info->ios[0]);
-        seq_printf(sf, "Write I/Os: %lu -- I/Os per sec: %lu", info->ios[1], info->duration[1]/info->ios[1]);
+        seq_printf(sf, "Read I/Os: %lu");
+        if (info->ios[0]) 
+            seq_printf(" -- I/Os per sec: %lu", info->ios[0], info->duration[0]/info->ios[0]);
+        seq_printf(sf, "Write I/Os: %lu", info->ios[1]);
+        if (info->ios[1])
+            seq_printf(" -- I/Os per sec: %lu", info->ios[1], info->duration[1]/info->ios[1]);
         seq_printf(sf, "Queue depth: %d\n", userinfo.qdepth);
         seq_printf(sf, "I/O service time (ns)\n");
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
