@@ -26,5 +26,6 @@ clean:
 else
 
     obj-m := fifo.o
+	fifo-objs := fifo-main.o ififo.o
 
 endif
