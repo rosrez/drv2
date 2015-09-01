@@ -89,13 +89,7 @@ static void blkstat_endio(struct bio *cloned_bio, int error)
         DEVNAME, nselapsed, cloned_bio->bi_size, uptodate, error, in_irq(), in_interrupt());
 
     bio_endio(bio, error);
-    // bio_put(cloned_bio);
     free_biostat(bs);
-
-#if 0
-   pr_info("%s: endio -- size: %u -- up-to-date: %d-- error: %d -- in_inter: %lu -- comm: %s\n", 
-        DEVNAME, bio->bi_size, uptodate, error, in_interrupt(), current->comm);
-#endif
 }
 
 /* FIXME:VER */
