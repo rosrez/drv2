@@ -81,6 +81,10 @@ struct blkstat {
     int is_active;  /* FIXME: remove this */
 }; 
 
+/* quantile points, scaled to 100000 total */
+int pval[] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 99000, 99999};
+char *pnam[] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "99%", "99.999%"};
+
 /* a snapshot of statistics from blkstat -- this is presented to user via procfs */
 struct userinfo {
     struct binfo info;
@@ -290,17 +294,18 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
     userinfo.qdepth = atomic_read(&blkstat.qdepth);
     userinfo.rtcnt = 0;     // FIXME: fifo = ififo_len();
     spin_unlock_irqrestore(&blkstat.infolock, flags);
+    /* info spinlock -- end of critical section */
 
-    return *pos == 1 ? SEQ_START_TOKEN : NULL;
+    return (void *) (long) (*pos + 1);
 }
 
 static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
 {
-    return NULL;
-#if 0
     (*pos)++;
-    return (void *) (long) pos;
-#endif
+    if (*pos < ARRAY_SIZE(pnam))
+        return (void *) (long) (pos + 1);
+    else
+        return NULL;
 }
 
 /* FIXME: mutex - concurrent userspace */
@@ -312,10 +317,13 @@ static void blkstat_seq_stop(struct seq_file *sf, void *v)
 static int blkstat_seq_show(struct seq_file *sf, void *v)
 {
     struct binfo *info = &userinfo.info;
-    //%% long pos;
+    long pos = *(long *) v - 2;
+
+    if (pos >= ARRAY_SIZE(pnam))
+        return 0;
 
     /* the first item => header */
-    if (v == SEQ_START_TOKEN) {
+    if (pos == -1) {
         long meanrt = (info->duration[0] + info->duration[1]) / 
                 (info->ios[0] + info->ios[1]);
         seq_printf(sf, "Target device: %s\n", targetname);
@@ -332,6 +340,7 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
     }
 
     //%% seq_printf(sf, "Time: %10i.%06i\n", (int) time->tv.tv_sec, (int) time->tv.tv_usec);
+    seq_printf(sf, "%-5s: ", pnam[pos]);
     return 0;
 }
 
