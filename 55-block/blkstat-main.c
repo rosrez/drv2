@@ -14,6 +14,8 @@
 
 #include <asm/atomic.h>
 
+#include "ififo.h"
+
 #define DEVNAME "blkstat"
 #define PROC_ENTRY "blkstat"
 
@@ -66,10 +68,7 @@ struct blkstat {
     struct binfo info;
     atomic_t qdepth;
     /* a FIFO with response times (the capacity is nrsamples) */
-    /* FIXME: remove comment */
-#if 0
-    struct ififo *rt;   
-#endif
+    struct ififo *rtimes;   
 
     /* protects the info struct */
     spinlock_t infolock;
@@ -82,18 +81,20 @@ struct blkstat {
 }; 
 
 /* quantile points, scaled to 100000 total */
-int pval[] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 99000, 99999};
-char *pnam[] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "99%", "99.999%"};
+#define NR_QUANTILES 12
+int pval[NR_QUANTILES] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 99000, 99999};
+char *pnam[NR_QUANTILES] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "99%", "99.999%"};
 
 /* a snapshot of statistics from blkstat -- this is presented to user via procfs */
 struct userinfo {
     struct binfo info;
     int qdepth;
-    int *rtimes;
-    int rtcnt;
+    int qtle[NR_QUANTILES];
+    int rtlen; 
 };
 
 static struct blkstat blkstat = {
+    .info.minrt = ~0UL,
     .qdepth = ATOMIC_INIT(0)
 };
 
@@ -253,7 +254,6 @@ static int blkstat_start(char dev_path[])
     blk_queue_max_hw_sectors(blkstat.queue, max_sectors);
     pr_info("blkstat: Max sectors: %u\n", max_sectors);
 
-    pr_info("blkstat: done initializing successfully\n");
     blkstat.is_active = 1;
 
     return 0;
@@ -286,16 +286,32 @@ static struct block_device_operations blkstat_ops = {
 static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
 //    __acquires(devinfo.list_lock)
 {
+    int *samples;
     unsigned long flags;
+    int len;
 
     if (*pos == 0) {
+        /* 
+         * Note the race here: we use the length value later, in the critical section,
+         * when the FIFO length may have changed. This is hardly a problem
+         * since our FIFO either grows in size or remains at the maximum size level.
+         * We can't do it otherwise because vmalloc() may sleep and is not allowed
+         * in our spinlock-protected section.
+         */
+        len = ififo_len(blkstat.rtimes);  
+        samples = vmalloc(len * sizeof(*samples));
+
         /* grab the info spinlock and take a snapshot of current statistics */
         spin_lock_irqsave(&blkstat.infolock, flags);
         memcpy(&userinfo.info, &blkstat.info, sizeof(userinfo));
         userinfo.qdepth = atomic_read(&blkstat.qdepth);
-        userinfo.rtcnt = 0;     // FIXME: fifo = ififo_len();
+        userinfo.rtlen = min(len, ififo_len(blkstat.rtimes));
+        ififo_copy(blkstat.rtimes, samples, 0, userinfo.rtlen);
         spin_unlock_irqrestore(&blkstat.infolock, flags);
         /* info spinlock -- end of critical section */
+
+        vfree(samples); 
+    
         return SEQ_START_TOKEN;
     }
 
@@ -308,7 +324,7 @@ static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
     idx++;
     (*pos)++;
 
-    if (idx - 1 < ARRAY_SIZE(pnam))
+    if (idx - 2 < NR_QUANTILES)
         return (void *) idx;
     else
         return NULL;
@@ -323,33 +339,38 @@ static void blkstat_seq_stop(struct seq_file *sf, void *v)
 static int blkstat_seq_show(struct seq_file *sf, void *v)
 {
     struct binfo *info = &userinfo.info;
-    long pos = (long) v;
+    long idx = (long) v;
 
     /* the first item => header */
-    if (pos == 1) {
+    if (idx == 1) {
         long meanrt = 0;
         if (info->ios[0] + info->ios[1])
             meanrt = (info->duration[0] + info->duration[1]) / (info->ios[0] + info->ios[1]);
         seq_printf(sf, "Target device: %s\n", targetname);
         seq_printf(sf, "Read I/Os: %lu", info->ios[0]);
         if (info->ios[0]) 
-            seq_printf(sf, " -- I/Os per sec: %lu", info->duration[0]/info->ios[0]);
+            seq_printf(sf, " -- I/Os per sec: %lu\n", info->duration[0]/info->ios[0]);
+        else
+            seq_printf(sf, "\n");
         seq_printf(sf, "Write I/Os: %lu", info->ios[1]);
         if (info->ios[1])
-            seq_printf(sf, " -- I/Os per sec: %lu", info->duration[1]/info->ios[1]);
+            seq_printf(sf, " -- I/Os per sec: %lu\n", info->duration[1]/info->ios[1]);
+        else
+            seq_printf(sf, "\n");
         seq_printf(sf, "Queue depth: %d\n", userinfo.qdepth);
         seq_printf(sf, "I/O service time (ns)\n");
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
         seq_printf(sf, "Mean: %lu\n", meanrt);
-        if (userinfo.rtcnt >= MIN_SAMPLES) {
+        if (userinfo.rtlen >= MIN_SAMPLES) {
             // FIXME: fifo - median
         }
         return 0;
     }
 
-    seq_printf(sf, "pos = %lu\n", pos);
-    //%% seq_printf(sf, "Time: %10i.%06i\n", (int) time->tv.tv_sec, (int) time->tv.tv_usec);
-    //seq_printf(sf, "%-5s: ", pnam[pos]);
+    /* adjust the index: 1 is the header, 2 is start of data */
+    idx -= 2;
+
+    seq_printf(sf, "%-7s: \n", pnam[idx]);
     return 0;
 }
 
@@ -384,6 +405,9 @@ static int __init blkstat_init(void)
     if (nrsamples < MIN_SAMPLES)
         return -EINVAL;
 
+    if ((rc = ififo_alloc(&blkstat.rtimes, nrsamples, GFP_KERNEL)))
+        return rc;
+
 	/* 
      * Use blk_alloc_queue() to set up the 'bio-oriented' processing,
      * i.e. it is enough to register the make_request() callback
@@ -394,7 +418,7 @@ static int __init blkstat_init(void)
      */
     if (!(blkstat.queue = blk_alloc_queue(GFP_KERNEL))) {
         pr_info("%s: alloc_queue failed\n", DEVNAME);
-        return -ENXIO;
+        goto error_rm_fifo;
     }
 
     /* register our make_request() callback */
@@ -427,6 +451,9 @@ static int __init blkstat_init(void)
     proc_entry = proc_create(PROC_ENTRY, 0666, NULL, &proc_fops);
     return rc;
 
+error_rm_fifo:
+    ififo_free(blkstat.rtimes);
+
 error_rm_dev:
 	unregister_blkdev(majornr, DEVNAME);
 
@@ -451,7 +478,8 @@ static void __exit blkstat_exit(void)
 
     if (blkstat.queue)
 	    blk_cleanup_queue(blkstat.queue);
-	
+
+    ififo_free(blkstat.rtimes);	
     unregister_blkdev(majornr, DEVNAME);
     pr_info("%s: exit complete\n", DEVNAME);
 }

@@ -29,6 +29,7 @@ else
 
 ifeq ($(KMAJOR),3)
     obj-m := blkstat.o kblkstat.o
+	blkstat-objs := blkstat-main.o ififo.o
 else
 	obj-m := stackbd.o
 endif
