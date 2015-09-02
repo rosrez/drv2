@@ -299,17 +299,17 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         return SEQ_START_TOKEN;
     }
 
-    if (* pos >= ARRAY_SIZE(pnam))
-        return NULL;
-
-    return (void *) (long) (*pos + 1);
+    return NULL;
 }
 
 static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
 {
+    long idx = (long) v;
+    idx++;
     (*pos)++;
-    if (*pos < ARRAY_SIZE(pnam))
-        return (void *) (long) (pos + 1);
+
+    if (idx - 1 < ARRAY_SIZE(pnam))
+        return (void *) idx;
     else
         return NULL;
 }
@@ -323,10 +323,10 @@ static void blkstat_seq_stop(struct seq_file *sf, void *v)
 static int blkstat_seq_show(struct seq_file *sf, void *v)
 {
     struct binfo *info = &userinfo.info;
-    long pos = (long) v - 2;
+    long pos = (long) v;
 
     /* the first item => header */
-    if (pos == -1) {
+    if (pos == 1) {
         long meanrt = 0;
         if (info->ios[0] + info->ios[1])
             meanrt = (info->duration[0] + info->duration[1]) / (info->ios[0] + info->ios[1]);
@@ -342,13 +342,14 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
         seq_printf(sf, "Mean: %lu\n", meanrt);
         if (userinfo.rtcnt >= MIN_SAMPLES) {
-            // FIXME: fifo
+            // FIXME: fifo - median
         }
         return 0;
     }
 
+    seq_printf(sf, "pos = %lu\n", pos);
     //%% seq_printf(sf, "Time: %10i.%06i\n", (int) time->tv.tv_sec, (int) time->tv.tv_usec);
-    seq_printf(sf, "%-5s: ", pnam[pos]);
+    //seq_printf(sf, "%-5s: ", pnam[pos]);
     return 0;
 }
 
