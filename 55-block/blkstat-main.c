@@ -65,14 +65,14 @@ struct blkstat {
     struct request_queue *queue;
     sector_t capacity;
 
-    /* the statistics: info + qdepth + rtimes -- protected by infolock */
+    /* the statistics: info + qdepth + rtimes -- protected by info_lock */
     struct binfo info;
     atomic_t qdepth;
     /* a FIFO with response times (the capacity is nrsamples) */
     struct ififo *rtimes;   
 
     /* protects the info struct */
-    spinlock_t infolock;
+    spinlock_t info_lock;
     /* prevents concurrent access to procfs entry */
     struct mutex procfs_mutex;
 
@@ -117,7 +117,7 @@ static void free_biostat(struct biostat *bs)
     kfree(bs);
 }
 
-/* must be called with blkstat.infolock held */
+/* must be called with blkstat.info_lock held */
 void update_info(int rw, unsigned long rtime)
 {
     blkstat.info.ios[rw]++;
@@ -154,9 +154,9 @@ static void blkstat_endio(struct bio *cloned_bio, int error)
      * It seems that we may get called both from a non-IRQ and IRQ context,
      * so use the irq-saving version, to be on the safe side.
      */
-    spin_lock_irqsave(&blkstat.infolock, flags);
+    spin_lock_irqsave(&blkstat.info_lock, flags);
     update_info(bio_data_dir(cloned_bio) & REQ_WRITE, nselapsed);
-    spin_unlock_irqrestore(&blkstat.infolock, flags);
+    spin_unlock_irqrestore(&blkstat.info_lock, flags);
 
     bio_endio(bio, error);
     free_biostat(bs);    
@@ -316,13 +316,13 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         samples = vmalloc(len * sizeof(*samples));
 
         /* grab the info spinlock and take a snapshot of current statistics */
-        spin_lock_irqsave(&blkstat.infolock, flags);
+        spin_lock_irqsave(&blkstat.info_lock, flags);
         memcpy(&userinfo.info, &blkstat.info, sizeof(userinfo));
         userinfo.qdepth = atomic_read(&blkstat.qdepth);
         userinfo.rtlen = min(len, ififo_len(blkstat.rtimes));
         for (i = 0; i < userinfo.rtlen; i++)
             ififo_get_at(blkstat.rtimes, &samples[i], i);
-        spin_unlock_irqrestore(&blkstat.infolock, flags);
+        spin_unlock_irqrestore(&blkstat.info_lock, flags);
         /* info spinlock -- end of critical section */
 
         sort(samples, userinfo.rtlen, sizeof(int), &cmp, NULL);
@@ -427,6 +427,9 @@ static int __init blkstat_init(void)
 
     if (nrsamples < MIN_SAMPLES)
         return -EINVAL;
+
+    spin_lock_init(&blkstat.info_lock);
+    mutex_init(&blkstat.procfs_mutex);
 
     /* allocate the FIFO to store recent response times */
     if ((rc = ififo_alloc(&blkstat.rtimes, nrsamples, GFP_KERNEL)))
