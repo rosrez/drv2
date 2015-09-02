@@ -314,7 +314,9 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         memcpy(&userinfo.info, &blkstat.info, sizeof(userinfo));
         userinfo.qdepth = atomic_read(&blkstat.qdepth);
         userinfo.rtlen = min(len, ififo_len(blkstat.rtimes));
-        ififo_copy(blkstat.rtimes, samples, 0, userinfo.rtlen);
+        for (i = 0; i < userinfo.rtlen; i++)
+            ififo_get_at(blkstat.rtimes, &samples[i], i);
+        // FIXME: ififo_copy(blkstat.rtimes, samples, 0, userinfo.rtlen);
 
         spin_unlock_irqrestore(&blkstat.infolock, flags);
         /* info spinlock -- end of critical section */
@@ -324,6 +326,7 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         for (i = 0; i < NR_QUANTILES; i++) {
             /* rescale quantile ranks */
             qtloc = pval[i] * userinfo.rtlen / 100000;
+            seq_printf(sf, "qtloc[%d] = %d\n", i, qtloc);
             /* store values for subsequent access by seq_file methods */
             userinfo.qtles[i] = samples[qtloc];
         }
