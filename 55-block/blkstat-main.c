@@ -11,10 +11,13 @@
 #include <linux/blkdev.h>
 #include <linux/hdreg.h>
 #include <linux/proc_fs.h>
+#include <linux/sort.h>
 
 #include <asm/atomic.h>
 
 #include "ififo.h"
+
+#define BLKSTAT_DEBUG 1
 
 #define DEVNAME "blkstat"
 #define PROC_ENTRY "blkstat"
@@ -54,12 +57,12 @@ struct binfo {
     unsigned long maxrt;
 };
 
-/* our 'device' structure, contains... everyting */
+/* our 'device' structure */
 struct blkstat {
     /* target device */
     struct block_device *tdev;
 
-    /* the usual boilerplate stuff: gendisk, queue */
+    /* the boilerplate stuff: gendisk, queue */
     struct gendisk *gendisk;
     struct request_queue *queue;
     sector_t capacity;
@@ -89,7 +92,7 @@ char *pnam[NR_QUANTILES] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80
 struct userinfo {
     struct binfo info;
     int qdepth;
-    int qtle[NR_QUANTILES];
+    int qtles[NR_QUANTILES];
     int rtlen; 
 };
 
@@ -119,8 +122,6 @@ static void free_biostat(struct biostat *bs)
 /* must be called with blkstat.infolock held */
 void update_info(int rw, unsigned long rtime)
 {
-    // FIXME:%% int rtime_int = rtime;
-
     blkstat.info.ios[rw]++;
     blkstat.info.duration[rw] += rtime;
 
@@ -129,8 +130,11 @@ void update_info(int rw, unsigned long rtime)
     if (blkstat.info.minrt > rtime)
         blkstat.info.minrt = rtime;
     atomic_dec(&blkstat.qdepth);
+    
+    if (ififo_is_full(blkstat.rtimes))
+        ififo_get(blkstat.rtimes, NULL);
 
-    /* TODO:%% Update fifo */
+    ififo_put(blkstat.rtimes, rtime);
 }
 
 static void blkstat_endio(struct bio *cloned_bio, int error)
@@ -164,14 +168,11 @@ static void blkstat_make_request(struct request_queue *q, struct bio *bio)
 {
     struct bio *cloned_bio;
 
+#ifdef BLKSTAT_DEBUG 
     pr_info("blkstat: make request %-5s block %-12llu #pages %-4hu total-size "
             "%-10u\n", bio_data_dir(bio) == WRITE ? "write" : "read",
             (unsigned long long) bio->bi_iter.bi_sector, bio->bi_vcnt, bio->bi_iter.bi_size);
-
-    pr_info("<%p> Make request %s %s %s\n", bio,
-           bio->bi_rw & REQ_SYNC ? "SYNC" : "",
-           bio->bi_rw & REQ_FLUSH ? "FLUSH" : "",
-           bio->bi_rw & REQ_NOIDLE ? "NOIDLE" : "");
+#endif
 
     if (!blkstat.tdev)
     {
@@ -286,9 +287,16 @@ static struct block_device_operations blkstat_ops = {
 static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
 //    __acquires(devinfo.list_lock)
 {
+
+    int cmp(const void *l, const void *r)
+    {   
+        return *((int *) r) - *((int *) l); 
+    }
+
     int *samples;
     unsigned long flags;
-    int len;
+    int qtloc;
+    int len, i;
 
     if (*pos == 0) {
         /* 
@@ -307,8 +315,18 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         userinfo.qdepth = atomic_read(&blkstat.qdepth);
         userinfo.rtlen = min(len, ififo_len(blkstat.rtimes));
         ififo_copy(blkstat.rtimes, samples, 0, userinfo.rtlen);
+
         spin_unlock_irqrestore(&blkstat.infolock, flags);
         /* info spinlock -- end of critical section */
+
+        sort(samples, userinfo.rtlen, sizeof(int), &cmp, NULL);
+
+        for (i = 0; i < NR_QUANTILES; i++) {
+            /* rescale quantile ranks */
+            qtloc = pval[i] * userinfo.rtlen / 100000;
+            /* store values for subsequent access by seq_file methods */
+            userinfo.qtles[i] = samples[qtloc];
+        }
 
         vfree(samples); 
     
@@ -361,16 +379,17 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
         seq_printf(sf, "I/O service time (ns)\n");
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
         seq_printf(sf, "Mean: %lu\n", meanrt);
-        if (userinfo.rtlen >= MIN_SAMPLES) {
-            // FIXME: fifo - median
-        }
+        if (userinfo.rtlen >= MIN_SAMPLES) 
+            seq_printf(sf, "Median: %d\n", userinfo.qtles[5]);
+        
         return 0;
     }
 
     /* adjust the index: 1 is the header, 2 is start of data */
     idx -= 2;
 
-    seq_printf(sf, "%-7s: \n", pnam[idx]);
+    seq_printf(sf, "%-7s:", pnam[idx]);
+    seq_printf(sf, " %d\n", userinfo.qtles[idx]);
     return 0;
 }
 

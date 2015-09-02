@@ -78,28 +78,29 @@ int ififo_get_at(struct ififo *fifo, int *value, int pos)
 
 void ififo_copy(struct ififo *fifo, int *buf, int idx, int count)
 {
-    unsigned int tgt, len, flen;
+    unsigned int tgtb, tgte, len, flen;
 
     if (ififo_is_empty(fifo))
         return;
 
     flen = ififo_len(fifo);
     if (idx + count > flen)
-        count = ififo_len(fifo) - idx;
+        count = flen - idx;
 
-    tgt = (fifo->out + idx) % fifo->size;
+    tgtb = (fifo->out + idx) % fifo->size;
+    tgte = (tgtb + count) % fifo->size;
 
-    if (tgt > fifo->out) {
-        len = tgt - flen;
-        memcpy(buf, &fifo->buffer[tgt], len);
+    if (tgtb < tgte) {
+        len = tgte - tgtb;
+        memcpy(buf, &fifo->buffer[tgtb], len);
     } else {
-        len = fifo->size - fifo->out;
-        printk("copying from %d: %d items\n", tgt, len);
-        memcpy(buf, &fifo->buffer[tgt], len * sizeof(int));
+        len = fifo->size - tgtb;
+        printk("copying from %d: %d items\n", tgtb, len);
+        memcpy(buf, &fifo->buffer[tgtb], len * sizeof(int));
         buf += len;
-        tgt = 0;
-        len = fifo->in;
-        printk("copying from %d: %d items\n", tgt, len);
-        memcpy(buf, &fifo->buffer[tgt], len * sizeof(int));
+        tgtb = 0;
+        len = tgte;
+        printk("copying from %d: %d items\n", tgtb, len);
+        memcpy(buf, &fifo->buffer[tgtb], len * sizeof(int));
     }
 }

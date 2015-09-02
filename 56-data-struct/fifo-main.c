@@ -82,6 +82,9 @@ static int __init fifo_init(void)
     printk("%s: added 1 item\n", MODNAME);
     print_fifo(fifo);
 
+    printk("%s: COPY -- after adding one\n", MODNAME);
+    print_fifo_copy(fifo);   
+
     /* add another half items */
     add_half(fifo, size + 2);
     printk("%s: added half\n", MODNAME);
