@@ -84,7 +84,8 @@ struct blkstat {
 }; 
 
 /* quantile points, scaled to 100000 total */
-#define NR_QUANTILES 12
+#define NR_QUANTILES 11
+#define QT_MEDIAN 4
 int pval[NR_QUANTILES] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 99000, 99999};
 char *pnam[NR_QUANTILES] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "99%", "99.999%"};
 
@@ -290,7 +291,7 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
 
     int cmp(const void *l, const void *r)
     {   
-        return *((int *) r) - *((int *) l); 
+        return *((int *) l) - *((int *) r); 
     }
 
     int *samples;
@@ -326,7 +327,6 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         for (i = 0; i < NR_QUANTILES; i++) {
             /* rescale quantile ranks */
             qtloc = pval[i] * userinfo.rtlen / 100000;
-            seq_printf(sf, "qtloc[%d] = %d\n", i, qtloc);
             /* store values for subsequent access by seq_file methods */
             userinfo.qtles[i] = samples[qtloc];
         }
@@ -382,8 +382,7 @@ static int blkstat_seq_show(struct seq_file *sf, void *v)
         seq_printf(sf, "I/O service time (ns)\n");
         seq_printf(sf, "Min: %lu -- Max: %lu\n", info->minrt, info->maxrt);
         seq_printf(sf, "Mean: %lu\n", meanrt);
-        if (userinfo.rtlen >= MIN_SAMPLES) 
-            seq_printf(sf, "Median: %d\n", userinfo.qtles[5]);
+        seq_printf(sf, "Median: %d\n", userinfo.qtles[QT_MEDIAN]);
         
         return 0;
     }
