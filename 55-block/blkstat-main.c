@@ -24,13 +24,11 @@
 
 #define NR_MINORS 1
 
-#define STACKBD_BDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
+#define TDEV_MODE (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 #define KERNEL_SECTOR_SIZE 512  /* FIXME: */
 
 #define MIN_SAMPLES 100
-
-/* FIXME: set the default to 100000 */
-#define DEF_SAMPLES 100
+#define DEF_SAMPLES 100000
 
 static int majornr = 0;
 
@@ -75,17 +73,16 @@ struct blkstat {
 
     /* protects the info struct */
     spinlock_t infolock;
-    /* protects the blkstat struct */
-    struct mutex devlock;
     /* prevents concurrent access to procfs entry */
-    struct mutex proclock;
+    struct mutex procfs_mutex;
 
-    int is_active;  /* FIXME: remove this */
+    int ready;
 }; 
 
 /* quantile points, scaled to 100000 total */
 #define NR_QUANTILES 11
 #define QT_MEDIAN 4
+
 int pval[NR_QUANTILES] = {10000, 20000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 99000, 99999};
 char *pnam[NR_QUANTILES] = {"10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "99%", "99.999%"};
 
@@ -180,7 +177,7 @@ static void blkstat_make_request(struct request_queue *q, struct bio *bio)
         pr_info("blkstat: Request before tdev is ready, aborting\n");
         goto err_bio;
     }
-    if (!blkstat.is_active)
+    if (!blkstat.ready)
     {
         pr_info("blkstat: Device not active yet, aborting\n");
         goto err_bio;
@@ -227,7 +224,7 @@ static struct block_device *blkstat_bdev_open(char dev_path[])
         return NULL;
     }
 
-    if (blkdev_get(tdev, STACKBD_BDEV_MODE, &blkstat))
+    if (blkdev_get(tdev, TDEV_MODE, &blkstat))
     {
         pr_info("blkstat: error blkdev_get()\n");
         bdput(tdev);
@@ -256,7 +253,7 @@ static int blkstat_start(char dev_path[])
     blk_queue_max_hw_sectors(blkstat.queue, max_sectors);
     pr_info("blkstat: Max sectors: %u\n", max_sectors);
 
-    blkstat.is_active = 1;
+    blkstat.ready = 1;
 
     return 0;
 }
@@ -284,9 +281,7 @@ static struct block_device_operations blkstat_ops = {
 	.getgeo = blkstat_getgeo,
 };
 
-/* FIXME: mutex - concurrent userspace */
 static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
-//    __acquires(devinfo.list_lock)
 {
 
     int cmp(const void *l, const void *r)
@@ -299,6 +294,15 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
     int qtloc;
     int len, i;
 
+    /* 
+     * Prevent concurrent access to the seq_file. Race to perform a vmalloc() 
+     * by concurrent invocations would be a disaster. May also corrupt 
+     * statistics data while output is in progress. Obviously, we take out 
+     * the sleeping lock (mutex) prior to acquiring the spinlock.
+     */
+    if (mutex_lock_interruptible(&blkstat.procfs_mutex))
+        return NULL;    /* signal termination to the higher layer */
+
     if (*pos == 0) {
         /* 
          * Note the race here: we use the length value later, in the critical section,
@@ -307,7 +311,8 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
          * We can't do it otherwise because vmalloc() may sleep and is not allowed
          * in our spinlock-protected section.
          */
-        len = ififo_len(blkstat.rtimes);  
+        len = ififo_len(blkstat.rtimes);
+        /* chose vmalloc() to put less pressure on system memory for large sample sets */ 
         samples = vmalloc(len * sizeof(*samples));
 
         /* grab the info spinlock and take a snapshot of current statistics */
@@ -317,8 +322,6 @@ static void *blkstat_seq_start(struct seq_file *sf, loff_t *pos)
         userinfo.rtlen = min(len, ififo_len(blkstat.rtimes));
         for (i = 0; i < userinfo.rtlen; i++)
             ififo_get_at(blkstat.rtimes, &samples[i], i);
-        // FIXME: ififo_copy(blkstat.rtimes, samples, 0, userinfo.rtlen);
-
         spin_unlock_irqrestore(&blkstat.infolock, flags);
         /* info spinlock -- end of critical section */
 
@@ -351,10 +354,9 @@ static void *blkstat_seq_next(struct seq_file *sf, void *v, loff_t *pos)
         return NULL;
 }
 
-/* FIXME: mutex - concurrent userspace */
 static void blkstat_seq_stop(struct seq_file *sf, void *v)
-//    __releases(devinfo.list_lock)
 {
+    mutex_unlock(&blkstat.procfs_mutex);
 }
 
 static int blkstat_seq_show(struct seq_file *sf, void *v)
@@ -426,6 +428,7 @@ static int __init blkstat_init(void)
     if (nrsamples < MIN_SAMPLES)
         return -EINVAL;
 
+    /* allocate the FIFO to store recent response times */
     if ((rc = ififo_alloc(&blkstat.rtimes, nrsamples, GFP_KERNEL)))
         return rc;
 
@@ -433,9 +436,7 @@ static int __init blkstat_init(void)
      * Use blk_alloc_queue() to set up the 'bio-oriented' processing,
      * i.e. it is enough to register the make_request() callback
      * that deals with individual bios.
-     * Otherwise, we would have to use the 'request-oriented' processing,
-     * and register a callback function that deals with individual
-     * requests. FIXME: check on request-oriented.
+     * Otherwise, we would have to use the 'request-oriented' processing.
      */
     if (!(blkstat.queue = blk_alloc_queue(GFP_KERNEL))) {
         pr_info("%s: alloc_queue failed\n", DEVNAME);
@@ -469,7 +470,7 @@ static int __init blkstat_init(void)
 
 	rc = blkstat_start(targetname);
 
-    proc_entry = proc_create(PROC_ENTRY, 0666, NULL, &proc_fops);
+    proc_entry = proc_create(PROC_ENTRY, S_IRUGO, NULL, &proc_fops);
     return rc;
 
 error_rm_fifo:
@@ -487,8 +488,8 @@ static void __exit blkstat_exit(void)
 {
     remove_proc_entry(PROC_ENTRY, NULL);
 
-    if (blkstat.is_active) {
-        blkdev_put(blkstat.tdev, STACKBD_BDEV_MODE);
+    if (blkstat.ready) {
+        blkdev_put(blkstat.tdev, TDEV_MODE);
         bdput(blkstat.tdev);
     }
 

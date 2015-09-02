@@ -57,8 +57,9 @@ int ififo_get(struct ififo *fifo, int *value)
 {
     if (ififo_is_empty(fifo))
         return 0;
-
-    *value = fifo->buffer[fifo->out];
+    
+    if (value)
+        *value = fifo->buffer[fifo->out];
     fifo->out = (fifo->out + 1) % fifo->size;
     return 1;
 } 
