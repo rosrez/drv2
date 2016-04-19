@@ -25,7 +25,7 @@ void compare(char *buf1, char *buf2, size_t size, char *testname) {
 }
 
 int main(int argc, char **argv) {
-    int fd, size, rc, i, c;
+    int fd, size, rc, i;
     char *area, *nodename = "/dev/mmap";
     char *readbuf;
 
@@ -58,7 +58,6 @@ int main(int argc, char **argv) {
     compare(readbuf, area, size, "mmap/read (1)");
 
     /*  overwrite mapped area with ABCDEF... */
-    c = 0;
     for (i = 0; i < size; i++) {
         area[i] = (char) (i % 26 + 65);
     }

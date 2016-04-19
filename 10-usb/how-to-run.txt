@@ -1,0 +1,3 @@
+modprobe dummy_hcd
+modprobe g_zero loopdefault=1
+insmod usb-skeleton.ko

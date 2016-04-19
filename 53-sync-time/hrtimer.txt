@@ -4,53 +4,46 @@ hrtimer
 It is possible to achieve subjiffy resolution with high-res timers 
 (notice that jiffies does not change during the sequence below). 
 
-However, high-res timers still operate with microsecond precision (about 10 or 20 us). 
-Setting the timer period to 1 or 5 ms does not improve timer resolution;
-the timer still fires at about 10 us intervals.
+However, high-res timers still operate with microsecond precision (about 5, 10 or 20 us). 
+Setting the timer period to 1 us does not improve timer resolution;
+on this system, the timer still fires at about 5 us intervals.
  
 We can observe from the sequence that we are in a (soft) interrupt context and 
 that the timer gets serviced by one of the softirq kernel threads.
 
 hrtimer: initializing
-
 === hrtimer: shot  1 ===
-current ktime (ns): 6516996164716
-ns elapsed since last shot: -1435086100191103762
-current jiffies: 4301184292
+current ktime (ns): 10772073867156
+ns elapsed since last shot: 14588
+current jiffies: 4305439369
 jiffies elapsed since last shot: 0
-in_interrupt: 1, cpu: 0
-PID: 4, command: ksoftirqd/0
-
+in_interrupt: 1, cpu: 1
+PID: 9, command: ksoftirqd/1
 === hrtimer: shot  2 ===
-current ktime (ns): 6516996180518
-ns elapsed since last shot: 15802
-current jiffies: 4301184292
+current ktime (ns): 10772073882526
+ns elapsed since last shot: 15370
+current jiffies: 4305439369
 jiffies elapsed since last shot: 0
-in_interrupt: 1, cpu: 0
-PID: 4, command: ksoftirqd/0
-
+in_interrupt: 1, cpu: 1
+PID: 9, command: ksoftirqd/1
 === hrtimer: shot  3 ===
-current ktime (ns): 6516996191819
-ns elapsed since last shot: 11301
-current jiffies: 4301184292
+current ktime (ns): 10772073894152
+ns elapsed since last shot: 11626
+current jiffies: 4305439369
 jiffies elapsed since last shot: 0
-in_interrupt: 1, cpu: 0
-PID: 4, command: ksoftirqd/0
-
+in_interrupt: 1, cpu: 1
+PID: 9, command: ksoftirqd/1
 === hrtimer: shot  4 ===
-current ktime (ns): 6516996201917
-ns elapsed since last shot: 10098
-current jiffies: 4301184292
+current ktime (ns): 10772073904501
+ns elapsed since last shot: 10349
+current jiffies: 4305439369
 jiffies elapsed since last shot: 0
-in_interrupt: 1, cpu: 0
-PID: 4, command: ksoftirqd/0
-
+in_interrupt: 1, cpu: 1
+PID: 9, command: ksoftirqd/1
 === hrtimer: shot  5 ===
-current ktime (ns): 6516996211594
-ns elapsed since last shot: 9677
-current jiffies: 4301184292
+current ktime (ns): 10772073914168
+ns elapsed since last shot: 9667
+current jiffies: 4305439369
 jiffies elapsed since last shot: 0
-in_interrupt: 1, cpu: 0
-PID: 4, command: ksoftirqd/0
-
-hrtimer: exiting
+in_interrupt: 1, cpu: 1
+PID: 9, command: ksoftirqd/1

@@ -226,8 +226,8 @@ void test_stackseg(int fd, int offset)
     stack = alloca(asize);
 
     printf("======== STACK SEGMENT ===========\n");
-    // touch_mem(fd, &stack[offset]);
-    touch_mem(fd, (char *) &asize);
+    touch_mem(fd, &stack[offset]);
+    // touch_mem(fd, (char *) &asize);
 }
 
 
@@ -239,7 +239,7 @@ void test_mmap(int fd, int offset)
     size = getpagesize() * 2;
     printf("size = %d\n", size);
 
-    mfd = open("t_pageinfo.mmap", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    mfd = open("t_pageinfo.tmp", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
     if (mfd == -1)
         serr_exit("open() failed");
 

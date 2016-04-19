@@ -195,4 +195,4 @@ module_init(pi_init);
 module_exit(pi_exit);
 
 MODULE_AUTHOR("Oleg Rosowiecki");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
